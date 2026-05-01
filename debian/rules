@@ -16,8 +16,9 @@ override_dh_auto_install:
 	mkdir -p debian/kitty-launcher/etc/bash_completion.d
 	mkdir -p debian/kitty-launcher/usr/share/zsh/site-functions
 	cp target/x86_64-unknown-linux-gnu/release/kitty-launcher debian/kitty-launcher/usr/bin/
-	# Create z-kitty shortcut symlink
+	# Create z-kitty and zk shortcut symlinks
 	ln -s kitty-launcher debian/kitty-launcher/usr/bin/z-kitty
+	ln -s kitty-launcher debian/kitty-launcher/usr/bin/zk
 	# Install system launcher .desktop file
 	cp kitty-launcher.desktop debian/kitty-launcher/usr/share/applications/ || true
 	# Install man page

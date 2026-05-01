@@ -237,12 +237,14 @@ if [ "$INSTALL_BINARY" = true ]; then
     echo -e "${GREEN}Installing kitty-launcher to ${INSTALL_DIR}...${NC}"
     sudo cp "$BINARY_PATH" "${INSTALL_DIR}/kitty-launcher"
     sudo chmod 755 "${INSTALL_DIR}/kitty-launcher"
-    # Create z-kitty symlink (remove stale link first if present)
-    echo -e "${GREEN}Creating z-kitty symlink in ${INSTALL_DIR}...${NC}"
+    # Create z-kitty and zk symlinks (remove stale links first if present)
+    echo -e "${GREEN}Creating z-kitty and zk symlinks in ${INSTALL_DIR}...${NC}"
     sudo ln -sf "${INSTALL_DIR}/kitty-launcher" "${INSTALL_DIR}/z-kitty"
+    sudo ln -sf "${INSTALL_DIR}/kitty-launcher" "${INSTALL_DIR}/zk"
     echo -e "${GREEN}✓ Installed:${NC}"
     echo -e "    ${INSTALL_DIR}/kitty-launcher"
     echo -e "    ${INSTALL_DIR}/z-kitty -> ${INSTALL_DIR}/kitty-launcher"
+    echo -e "    ${INSTALL_DIR}/zk -> ${INSTALL_DIR}/kitty-launcher"
 fi
 
 echo ""
