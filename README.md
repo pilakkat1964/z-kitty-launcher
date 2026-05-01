@@ -488,7 +488,8 @@ Sessions are searched in this order (first match wins):
 1. `./kitty/sessions/` (project-local, shallowest for easy discovery)
 2. `~/.local/etc/kitty/sessions/` (user-level)
 3. `/opt/etc/kitty/sessions/` (system-wide optional)
-4. `~/.config/kitty/sessions/` (kitty standard location)
+4. `~/.local/share/kitty/sessions/` (XDG data directory)
+5. `~/.config/kitty/sessions/` (kitty standard location)
 
 This priority order enables flexible session organization from project-local to system-wide.
 

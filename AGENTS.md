@@ -290,7 +290,8 @@ kitty-launcher --generate-completions zsh >> ~/.zshrc
 1. `./etc/kitty/` (current directory)
 2. `~/.local/etc/kitty/` (user directory)
 3. `/opt/etc/kitty/` (system-wide)
-4. `~/.config/kitty/` (kitty standard location)
+4. `~/.local/share/kitty/` (XDG data directory)
+5. `~/.config/kitty/` (kitty standard location)
 
 ### Session File Discovery
 - Tries exact name first: `<name>`

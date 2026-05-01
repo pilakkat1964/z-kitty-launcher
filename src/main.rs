@@ -120,7 +120,8 @@ fn print_help() {
     println!("    1. ./kitty/sessions/");
     println!("    2. ~/.local/etc/kitty/sessions/");
     println!("    3. /opt/etc/kitty/sessions/");
-    println!("    4. ~/.config/kitty/sessions/");
+    println!("    4. ~/.local/share/kitty/sessions/");
+    println!("    5. ~/.config/kitty/sessions/");
     println!();
     println!("SESSION FILE DISCOVERY:");
     println!("    • Looks for exact name first, then tries <NAME>.session");
@@ -276,6 +277,11 @@ fn find_config_file(session_name: &str) -> Result<PathBuf, String> {
 
     // Add optional system-wide directory
     search_paths.push(PathBuf::from("/opt/etc/kitty/sessions"));
+
+    // Add kitty's XDG data directory if home dir is available
+    if let Some(home) = get_home_dir() {
+        search_paths.push(home.join(".local/share/kitty/sessions"));
+    }
 
     // Add kitty's standard configuration directory if home dir is available
     if let Some(home) = get_home_dir() {
