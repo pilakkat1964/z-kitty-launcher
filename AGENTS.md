@@ -16,7 +16,7 @@
 ### Version: 0.5.2 (Latest)
 - **Release**: Session File Directive Parsing
 - **Build**: ✅ Clean (0 warnings, 0 errors)
-- **Tests**: ✅ 18/18 passing
+- **Tests**: ✅ 19/19 passing
 - **Git**: ✅ SSH+Git fully operational with pilakkat1964 account
 - **Debian**: ✅ Package builds successfully
 
@@ -25,7 +25,7 @@
 - **Documentation**: 1,600+ lines (README, man page, info page, guides)
 - **Binary Size**: ~509 KB (release, stripped)
 - **Build Time**: ~1.5 seconds
-- **Test Suite**: 18 unit tests (validation, completions, desktop integration, directive parsing)
+- **Test Suite**: 19 unit tests (validation, completions, desktop integration, directive parsing)
 
 ---
 
@@ -40,7 +40,9 @@
 - Updated default session template with directive usage example
 - Updated help output with SESSION DIRECTIVES section
 - Fixed `build-deb.sh`: removed `local` keyword used outside functions
-- 9 new unit tests; 18 total
+- Added `~/.local/share/kitty/sessions` as search path #4
+- Added `.kitty-session` as accepted extension alongside `.session` (parity with kitty)
+- 9 new unit tests; 19 total
 
 ### v0.5.1 - Build System Improvements
 - Add intelligent version detection to build scripts
@@ -207,6 +209,7 @@ cargo test
 - `test_parse_directives_cwd_shorthand` ✓
 - `test_expand_tilde_absolute_path` ✓
 - `test_expand_tilde_no_tilde` ✓
+- `test_validate_session_name_kitty_session_extension` ✓
 
 ### Build Debian Package (AMD64 only)
 ```bash
@@ -636,4 +639,4 @@ Some usability improvements:
 
 **Status Summary**: ✅ Production-ready. GitHub Pages deployed and live. Multi-architecture CI/CD operational. Cargo-audit security scanning enabled. Crates.io publishing configured. Cross-project navigation working. SSH+Git fully operational. Ready for contribution guidelines phase.
 
-**Last Updated**: May 1, 2026 (v0.5.2: session file directive parsing, `cwd` shorthand, build-deb.sh fix)
+**Last Updated**: May 1, 2026 (v0.5.2: session file directive parsing, `cwd` shorthand, `.kitty-session` extension, XDG data dir search path, build-deb.sh fix)

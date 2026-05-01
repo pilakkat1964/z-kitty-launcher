@@ -124,7 +124,7 @@ fn print_help() {
     println!("    5. ~/.config/kitty/sessions/");
     println!();
     println!("SESSION FILE DISCOVERY:");
-    println!("    • Looks for exact name first, then tries <NAME>.session");
+    println!("    • Looks for exact name first, then tries <NAME>.session and <NAME>.kitty-session");
     println!("    • Valid characters: alphanumeric, hyphens, underscores, dots");
     println!();
     println!("CREATING SESSION TEMPLATES:");
@@ -288,14 +288,18 @@ fn find_config_file(session_name: &str) -> Result<PathBuf, String> {
         search_paths.push(home.join(".config/kitty/sessions"));
     }
 
-    // Build list of session names to try: first the original, then with .session extension
-    // (unless it already ends with .session)
-    let session_names_to_try = if session_name.ends_with(".session") {
+    // Build list of session names to try: first the original, then with known
+    // extensions appended (.session and .kitty-session, matching kitty's own
+    // supported extensions). Already-extended names skip redundant variants.
+    let session_names_to_try = if session_name.ends_with(".session")
+        || session_name.ends_with(".kitty-session")
+    {
         vec![session_name.to_string()]
     } else {
         vec![
             session_name.to_string(),
             format!("{}.session", session_name),
+            format!("{}.kitty-session", session_name),
         ]
     };
 
@@ -337,8 +341,8 @@ fn find_config_file(session_name: &str) -> Result<PathBuf, String> {
     }
 
     error_msg.push_str(&format!(
-        "\nPlease create a configuration file named '{}' (or '{}.session') in one of these directories.",
-        session_name, session_name
+        "\nPlease create a configuration file named '{}' (or '{}.session' / '{}.kitty-session') in one of these directories.",
+        session_name, session_name, session_name
     ));
 
     Err(error_msg)
@@ -1198,15 +1202,24 @@ mod tests {
     /// Test the logic for determining session names to try
     #[test]
     fn test_session_name_variants() {
-        // Test that session names without .session get tried with extension
-        let name_without_ext = "dev";
-        let should_retry = !name_without_ext.ends_with(".session");
-        assert!(should_retry); // Should retry with .session
+        // Names without an extension get both .session and .kitty-session appended
+        let name = "dev";
+        assert!(!name.ends_with(".session") && !name.ends_with(".kitty-session"));
 
-        // Test that session names with .session don't get tried again
-        let name_with_ext = "dev.session";
-        let should_not_retry = !name_with_ext.ends_with(".session");
-        assert!(!should_not_retry); // Should not retry again
+        // Names already ending with .session are not retried
+        let name_session = "dev.session";
+        assert!(name_session.ends_with(".session") || name_session.ends_with(".kitty-session"));
+
+        // Names already ending with .kitty-session are not retried
+        let name_ks = "dev.kitty-session";
+        assert!(name_ks.ends_with(".session") || name_ks.ends_with(".kitty-session"));
+    }
+
+    /// Test that .kitty-session extension is accepted by the validator
+    #[test]
+    fn test_validate_session_name_kitty_session_extension() {
+        assert!(validate_session_name("dev.kitty-session").is_ok());
+        assert!(validate_session_name("my-project.kitty-session").is_ok());
     }
 
     /// Test create session file validation

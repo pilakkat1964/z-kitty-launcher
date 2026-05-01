@@ -493,7 +493,7 @@ Sessions are searched in this order (first match wins):
 
 This priority order enables flexible session organization from project-local to system-wide.
 
-Example session file (`dev.session`):
+Example session file (`dev.session` or `dev.kitty-session`):
 
 ```
 # Development environment session
@@ -522,7 +522,7 @@ Session files can embed **launcher directives** — special comment blocks that 
 #%[ key = value ]%#
 ```
 
-Place directives at the top of your `.session` file (though they are scanned from any line).
+Place directives at the top of your `.session` or `.kitty-session` file (though they are scanned from any line).
 
 ### Supported Directives
 
