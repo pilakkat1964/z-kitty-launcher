@@ -1,3 +1,14 @@
+kitty-launcher (0.5.2-1) unstable; urgency=medium
+
+  * Add session file directive parsing (#%[ key = value ]%# syntax)
+  * Add currentWorkingDir directive to set kitty startup directory via -d flag
+  * Add expand_tilde() helper for ~ expansion in directive values
+  * Update default session template with directive usage example
+  * Update help output with SESSION DIRECTIVES documentation section
+  * Add 9 new unit tests covering directive parsing and tilde expansion
+
+ -- OpenCode Contributors <contributors@opencode.ai>  Fri, 01 May 2026 00:00:00 +0000
+
 kitty-launcher (0.5.1-1) unstable; urgency=medium
 
   * Add intelligent version detection to build scripts

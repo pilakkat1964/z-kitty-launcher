@@ -44,6 +44,26 @@ struct LauncherConfig {
     config_path: PathBuf,
 }
 
+/// Holds launcher directives parsed from a session file's header comments.
+///
+/// Directives are embedded in session files using the special comment syntax:
+///   `#%[ key = value ]%#`
+///
+/// These lines are valid kitty comments (ignored by kitty) but are read and
+/// acted upon by kitty-launcher before launching the terminal.
+///
+/// # Example session file header
+/// ```text
+/// #%[ currentWorkingDir = ~/projects/my-app ]%#
+/// new_tab Main
+///   launch
+/// ```
+#[derive(Debug, Default)]
+struct SessionDirectives {
+    /// Optional working directory to pass to kitty via the `-d` flag.
+    current_working_dir: Option<String>,
+}
+
 /// Prints comprehensive help message
 fn print_help() {
     println!(
@@ -139,6 +159,21 @@ fn print_help() {
     println!("SHELL COMPLETIONS:");
     println!("    bash:  kitty-launcher --generate-completions bash >> ~/.bashrc");
     println!("    zsh:   kitty-launcher --generate-completions zsh >> ~/.zshrc");
+    println!();
+    println!("SESSION DIRECTIVES:");
+    println!("    Embed launcher instructions in session files using special comment blocks.");
+    println!("    These are valid kitty comments (ignored by kitty) but are acted upon");
+    println!("    by kitty-launcher before the terminal is launched.");
+    println!();
+    println!("    Syntax:  #%[ key = value ]%#");
+    println!();
+    println!("    Supported directives:");
+    println!("      currentWorkingDir = <path>    Set kitty's startup directory (supports ~)");
+    println!("      cwd = <path>                  Shorthand for currentWorkingDir");
+    println!();
+    println!("    Examples (add to the top of your .session file):");
+    println!("      #%[ currentWorkingDir = ~/projects/my-app ]%#");
+    println!("      #%[ currentWorkingDir = /opt/my-project ]%#");
     println!();
     println!("For more information: https://github.com/pilakkat1964/kitty-launcher");
 }
@@ -379,6 +414,10 @@ fn create_default_template() -> String {
     r#"# Kitty Session Configuration
 # Edit this file to customize your terminal session
 # For more information, see: https://sw.kovidgoyal.net/kitty/conf/
+#
+# Kitty Launcher Directives (parsed by kitty-launcher, ignored by kitty):
+# Uncomment and edit the line below to set a startup working directory:
+# #%[ currentWorkingDir = ~ ]%#
 
 # Define the first tab
 new_tab Main
@@ -389,6 +428,104 @@ new_tab Development
   launch
 "#
     .to_string()
+}
+
+/// Parses launcher directives from a session file's special comment blocks.
+///
+/// Scans each line of the session file for the pattern:
+///   `#%[ key = value ]%#`
+///
+/// Lines that do not match this pattern are ignored. Known directive keys
+/// are stored in the returned `SessionDirectives`. Unknown keys produce a
+/// warning on stderr but do not cause failure.
+///
+/// Tilde (`~`) at the start of a value is expanded to the user's `$HOME`
+/// directory.
+///
+/// # Arguments
+/// * `session_path` - Path to the `.session` file to parse
+///
+/// # Returns
+/// A `SessionDirectives` struct; fields are `None` if not specified in the file.
+/// Returns a default (all-`None`) struct if the file cannot be read.
+fn parse_session_directives(session_path: &Path) -> SessionDirectives {
+    let mut directives = SessionDirectives::default();
+
+    // Read file — fail gracefully (session may still launch without directives)
+    let content = match fs::read_to_string(session_path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!(
+                "Warning: Could not read session file for directive parsing: {}",
+                e
+            );
+            return directives;
+        }
+    };
+
+    for (line_num, line) in content.lines().enumerate() {
+        let trimmed = line.trim();
+
+        // Directive lines must start with #%[ and end with ]%#
+        if !trimmed.starts_with("#%[") || !trimmed.ends_with("]%#") {
+            continue;
+        }
+
+        // Extract content between the tokens
+        let inner = &trimmed["#%[".len()..trimmed.len() - "]%#".len()];
+        let inner = inner.trim();
+
+        // Split on the first '=' only
+        let eq_pos = match inner.find('=') {
+            Some(pos) => pos,
+            None => {
+                eprintln!(
+                    "Warning: Session file line {}: directive missing '=' — ignored: {}",
+                    line_num + 1,
+                    trimmed
+                );
+                continue;
+            }
+        };
+
+        let key = inner[..eq_pos].trim();
+        let value = inner[eq_pos + 1..].trim();
+
+        match key.to_lowercase().as_str() {
+            "currentworkingdir" | "cwd" => {
+                let expanded = expand_tilde(value);
+                directives.current_working_dir = Some(expanded);
+            }
+            _ => {
+                eprintln!(
+                    "Warning: Session file line {}: unknown directive key '{}' — ignored",
+                    line_num + 1,
+                    key
+                );
+            }
+        }
+    }
+
+    directives
+}
+
+/// Expands a leading `~` to the user's home directory.
+///
+/// If the value starts with `~/` or is exactly `~`, the tilde is replaced
+/// with the `$HOME` environment variable. If `$HOME` is not set, the tilde
+/// is left unchanged. Any other value is returned as-is.
+fn expand_tilde(value: &str) -> String {
+    if value == "~" {
+        return get_home_dir()
+            .map(|h| h.to_string_lossy().to_string())
+            .unwrap_or_else(|| value.to_string());
+    }
+    if value.starts_with("~/") {
+        if let Some(home) = get_home_dir() {
+            return format!("{}/{}", home.to_string_lossy(), &value[2..]);
+        }
+    }
+    value.to_string()
 }
 
 /// Creates a .desktop file for launching a kitty session from application menus.
@@ -611,11 +748,21 @@ fn launch_kitty(config: &LauncherConfig, extra_args: Option<Vec<String>>) -> Res
         Err(_) => config.config_path.clone(),
     };
 
+    // Parse any launcher directives embedded in the session file
+    let directives = parse_session_directives(&config.config_path);
+
     // Create the kitty command
     let mut command = Command::new("kitty");
 
     // Set the KITTY_CONF_DIR environment variable
     command.env("KITTY_CONF_DIR", config_dir);
+
+    // Apply currentWorkingDir directive if present (session file wins over inherited cwd)
+    if let Some(ref cwd) = directives.current_working_dir {
+        println!("Working directory: {}", cwd);
+        command.arg("-d");
+        command.arg(cwd);
+    }
 
     // Add the session argument
     command.arg("--session");
@@ -1110,5 +1257,114 @@ MimeType=application/x-shellscript;text/x-shellscript;application/x-sh;text/x-sh
         assert!(desktop_content.contains("Exec=kitty-launcher test"));
         assert!(desktop_content.contains("Icon=kitty"));
         assert!(desktop_content.contains("Terminal=false"));
+    }
+
+    /// Helper: write a temp session file and return its path
+    fn write_temp_session(name: &str, content: &str) -> std::path::PathBuf {
+        let path = std::path::PathBuf::from(format!("/tmp/kitty-launcher-test-{}.session", name));
+        std::fs::write(&path, content).expect("write temp session file");
+        path
+    }
+
+    /// Test that a basic currentWorkingDir directive is parsed correctly
+    #[test]
+    fn test_parse_directives_basic() {
+        let path = write_temp_session("basic", "#%[ currentWorkingDir = /tmp/myproject ]%#\nnew_tab Main\n  launch\n");
+        let directives = parse_session_directives(&path);
+        assert_eq!(directives.current_working_dir, Some("/tmp/myproject".to_string()));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Test that tilde is expanded to the home directory
+    #[test]
+    fn test_parse_directives_tilde_expansion() {
+        let path = write_temp_session("tilde", "#%[ currentWorkingDir = ~/projects/app ]%#\n");
+        let directives = parse_session_directives(&path);
+        if let Some(home) = get_home_dir() {
+            let expected = format!("{}/projects/app", home.to_string_lossy());
+            assert_eq!(directives.current_working_dir, Some(expected));
+        } else {
+            assert_eq!(directives.current_working_dir, Some("~/projects/app".to_string()));
+        }
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Test that a bare tilde expands to the home directory
+    #[test]
+    fn test_parse_directives_bare_tilde() {
+        let path = write_temp_session("bare-tilde", "#%[ currentWorkingDir = ~ ]%#\n");
+        let directives = parse_session_directives(&path);
+        if let Some(home) = get_home_dir() {
+            assert_eq!(directives.current_working_dir, Some(home.to_string_lossy().to_string()));
+        }
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Test that a session file with no directives returns all-None
+    #[test]
+    fn test_parse_directives_empty() {
+        let path = write_temp_session("empty", "# Normal comment\nnew_tab Main\n  launch\n");
+        let directives = parse_session_directives(&path);
+        assert!(directives.current_working_dir.is_none());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Test that unknown directive keys produce a warning but do not panic
+    #[test]
+    fn test_parse_directives_unknown_key() {
+        let path = write_temp_session("unknown", "#%[ unknownKey = somevalue ]%#\nnew_tab Main\n");
+        let directives = parse_session_directives(&path);
+        assert!(directives.current_working_dir.is_none());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Test that malformed directive blocks (no '=') are ignored gracefully
+    #[test]
+    fn test_parse_directives_malformed_no_equals() {
+        let path = write_temp_session("no-equals", "#%[ currentWorkingDir ]%#\nnew_tab Main\n");
+        let directives = parse_session_directives(&path);
+        assert!(directives.current_working_dir.is_none());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Test that lines missing the closing token are not parsed as directives
+    #[test]
+    fn test_parse_directives_malformed_no_close_token() {
+        let path = write_temp_session("no-close", "#%[ currentWorkingDir = /tmp\nnew_tab Main\n");
+        let directives = parse_session_directives(&path);
+        assert!(directives.current_working_dir.is_none());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Test that directive key matching is case-insensitive
+    #[test]
+    fn test_parse_directives_case_insensitive_key() {
+        let path = write_temp_session("case", "#%[ CURRENTWORKINGDIR = /opt/app ]%#\n");
+        let directives = parse_session_directives(&path);
+        assert_eq!(directives.current_working_dir, Some("/opt/app".to_string()));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Test that "cwd" is accepted as shorthand for "currentWorkingDir"
+    #[test]
+    fn test_parse_directives_cwd_shorthand() {
+        let path = write_temp_session("cwd-short", "#%[ cwd = /srv/myapp ]%#\nnew_tab Main\n");
+        let directives = parse_session_directives(&path);
+        assert_eq!(directives.current_working_dir, Some("/srv/myapp".to_string()));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Test that expand_tilde does not alter absolute paths
+    #[test]
+    fn test_expand_tilde_absolute_path() {
+        let result = expand_tilde("/usr/local/share");
+        assert_eq!(result, "/usr/local/share");
+    }
+
+    /// Test that expand_tilde does not alter paths without a tilde
+    #[test]
+    fn test_expand_tilde_no_tilde() {
+        let result = expand_tilde("relative/path");
+        assert_eq!(result, "relative/path");
     }
 }

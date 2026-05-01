@@ -13,6 +13,7 @@ A robust, lightning-fast Rust-based terminal session manager for the [kitty term
 - [Installation](#installation)
 - [Shell Completions](#shell-completions)
 - [Usage Guide](#usage-guide)
+- [Session Directives](#session-directives)
 - [Learning Resources](#learning-resources)
 
 ## Quick Start
@@ -70,6 +71,7 @@ kitty-launcher dev
 - **Template system**: Bootstrap new sessions from existing ones
 - **Standard format**: Compatible with native kitty session files
 - **Multiple search paths**: Find sessions in project, user, or system directories
+- **Embedded directives**: Control launcher behaviour from within the session file
 
 ### 🔧 Developer-Friendly
 - **Shell integration**: Works with bash, zsh, fish, and other shells
@@ -509,6 +511,75 @@ new_window
 
 For full kitty session format, see: https://sw.kovidgoyal.net/kitty/conf/
 
+## Session Directives
+
+Session files can embed **launcher directives** — special comment blocks that are read and acted upon by `kitty-launcher` before the terminal is launched. Because they use the kitty comment character (`#`), they are completely ignored by kitty itself.
+
+### Syntax
+
+```
+#%[ key = value ]%#
+```
+
+Place directives at the top of your `.session` file (though they are scanned from any line).
+
+### Supported Directives
+
+| Directive | Shorthand | Description |
+|-----------|-----------|-------------|
+| `currentWorkingDir` | `cwd` | Set kitty's startup working directory (supports `~`) |
+
+### `currentWorkingDir` / `cwd`
+
+Passes `-d <path>` to kitty so the terminal opens in the specified directory. This is especially useful when sessions are shared across projects or launched from `.desktop` files that don't have a `Path=` set.
+
+```
+#%[ currentWorkingDir = ~/projects/my-app ]%#
+```
+
+Or using the shorthand:
+
+```
+#%[ cwd = ~/projects/my-app ]%#
+```
+
+Both forms are equivalent and case-insensitive for the key.
+
+**Tilde expansion**: `~` and `~/path` are expanded to `$HOME` automatically.
+
+### Example Session File with Directive
+
+```
+#%[ cwd = ~/projects/my-app ]%#
+
+# Development environment session
+new_tab Editor
+  launch nvim .
+
+new_tab Server
+  launch npm run dev
+
+new_tab Git
+  launch
+```
+
+When launched, kitty starts in `~/projects/my-app` regardless of the working directory of the calling process. The directive is printed to stdout for transparency:
+
+```
+Working directory: /home/user/projects/my-app
+Session: my-app
+Config file: /home/user/.local/etc/kitty/sessions/my-app.session
+Status: Launched kitty terminal
+```
+
+### Adding More Directives in Future
+
+The parser is designed for easy extension. Unknown directive keys produce a warning on stderr but never fail the launch:
+
+```
+Warning: Session file line 2: unknown directive key 'myFutureKey' — ignored
+```
+
 ## Learning Resources
 
 This project is an excellent Rust learning resource demonstrating real-world patterns while solving practical problems. It's a productive way to learn Rust by building something useful.
@@ -617,6 +688,8 @@ cargo test
 # - Invalid session names are rejected
 # - Security validation works correctly
 # - Desktop file generation is correct
+# - Session directive parsing (currentWorkingDir / cwd)
+# - Tilde expansion in directive values
 
 # Development commands
 cargo build              # Debug build (fast compile, slow runtime)

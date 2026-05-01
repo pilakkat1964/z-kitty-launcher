@@ -179,12 +179,12 @@ if [[ -n "$TARGET_REF" ]]; then
     checkout_and_update_version "$TARGET_REF" "$TARGET_VERSION"
 elif [[ "$FORCE_TIP" == true ]]; then
     echo -e "${BLUE}Building tip of current branch${NC}"
-    local cargo_ver=$(get_cargo_version)
-    local deb_ver=$(get_debian_version)
+    cargo_ver=$(get_cargo_version)
+    deb_ver=$(get_debian_version)
     if [[ "$cargo_ver-1" != "$deb_ver" ]]; then
         echo -e "${YELLOW}Updating debian/changelog to match Cargo.toml ($cargo_ver)${NC}"
-        local target_ver="${cargo_ver}-1"
-        local temp_changelog=$(mktemp)
+        target_ver="${cargo_ver}-1"
+        temp_changelog=$(mktemp)
         cat > "$temp_changelog" << CHANGELOG_EOF
 kitty-launcher ($target_ver) unstable; urgency=medium
 
@@ -198,7 +198,7 @@ CHANGELOG_EOF
     fi
 elif [[ -n "$TARGET_VERSION" ]]; then
     echo -e "${BLUE}Forcing version: $TARGET_VERSION${NC}"
-    local temp_changelog=$(mktemp)
+    temp_changelog=$(mktemp)
     cat > "$temp_changelog" << CHANGELOG_EOF
 kitty-launcher ($TARGET_VERSION) unstable; urgency=medium
 
@@ -212,8 +212,8 @@ CHANGELOG_EOF
 else
     # Default: build current checkout
     echo -e "${BLUE}Building current checked-out version${NC}"
-    local cargo_ver=$(get_cargo_version)
-    local deb_ver=$(get_debian_version)
+    cargo_ver=$(get_cargo_version)
+    deb_ver=$(get_debian_version)
     echo -e "${BLUE}Current Cargo.toml version: ${cargo_ver}${NC}"
     echo -e "${BLUE}Current Debian version: ${deb_ver}${NC}"
     

@@ -13,23 +13,41 @@
 
 ## Current Status
 
-### Version: 0.4.0 (Latest)
-- **Release**: Shell Completions for Bash and Zsh
+### Version: 0.5.2 (Latest)
+- **Release**: Session File Directive Parsing
 - **Build**: ✅ Clean (0 warnings, 0 errors)
-- **Tests**: ✅ 7/7 passing
+- **Tests**: ✅ 18/18 passing
 - **Git**: ✅ SSH+Git fully operational with pilakkat1964 account
 - **Debian**: ✅ Package builds successfully
 
 ### Quick Facts
-- **Source Code**: 957 lines (src/main.rs)
-- **Documentation**: 1,500+ lines (README, man page, info page, guides)
+- **Source Code**: ~1,150 lines (src/main.rs)
+- **Documentation**: 1,600+ lines (README, man page, info page, guides)
 - **Binary Size**: ~509 KB (release, stripped)
 - **Build Time**: ~1.5 seconds
-- **Test Suite**: 7 unit tests (validation, completions, desktop integration)
+- **Test Suite**: 18 unit tests (validation, completions, desktop integration, directive parsing)
 
 ---
 
 ## Version History
+
+### v0.5.2 - Session File Directive Parsing
+- Embedded launcher directives in `.session` files via `#%[ key = value ]%#` syntax
+- `currentWorkingDir` directive (and `cwd` shorthand) passes `-d <path>` to kitty
+- Tilde (`~`) expansion for directive values
+- Directive output printed to stdout on launch for transparency
+- Graceful handling of unknown/malformed directives (warnings, no failure)
+- Updated default session template with directive usage example
+- Updated help output with SESSION DIRECTIVES section
+- Fixed `build-deb.sh`: removed `local` keyword used outside functions
+- 9 new unit tests; 18 total
+
+### v0.5.1 - Build System Improvements
+- Add intelligent version detection to build scripts
+- Add --tip flag to build latest Cargo.toml version
+- Add --git-version TAG flag for building specific git tags
+- Add --version VERSION flag for forced version override
+- Enhance build-deb.sh with automatic debian/changelog synchronization
 
 ### v0.4.0 - Shell Completions
 - Bash completion script with session suggestions
@@ -167,7 +185,7 @@ cargo build --release
 ### Run Tests
 ```bash
 cargo test
-# Output: test result: ok. 7 passed; 0 failed
+# Output: test result: ok. 18 passed; 0 failed
 ```
 
 ### Test Coverage
@@ -178,6 +196,17 @@ cargo test
 - `test_create_session_validation` ✓
 - `test_create_launcher_validation` ✓
 - `test_desktop_file_content` ✓
+- `test_parse_directives_basic` ✓
+- `test_parse_directives_tilde_expansion` ✓
+- `test_parse_directives_bare_tilde` ✓
+- `test_parse_directives_empty` ✓
+- `test_parse_directives_unknown_key` ✓
+- `test_parse_directives_malformed_no_equals` ✓
+- `test_parse_directives_malformed_no_close_token` ✓
+- `test_parse_directives_case_insensitive_key` ✓
+- `test_parse_directives_cwd_shorthand` ✓
+- `test_expand_tilde_absolute_path` ✓
+- `test_expand_tilde_no_tilde` ✓
 
 ### Build Debian Package (AMD64 only)
 ```bash
@@ -251,7 +280,9 @@ kitty-launcher --generate-completions zsh >> ~/.zshrc
 - `create_session_file()` - Session creation
 - `create_launcher_file()` - .desktop file creation
 - `create_system_launcher()` - System registration
-- `launch_kitty()` - Session launching
+- `parse_session_directives()` - Session file directive parser
+- `expand_tilde()` - Tilde expansion helper
+- `launch_kitty()` - Session launching (applies directives)
 - `generate_bash_completion()` - Bash script generation
 - `generate_zsh_completion()` - Zsh script generation
 
@@ -559,7 +590,38 @@ curl -I http://pilakkat.mywire.org/z-kitty-launcher/
 - Create GitHub-based metrics dashboard
 
 ---
+## Developments v +0.1
 
+Some usability improvements:
+
+**Extensibility by parsing the *.sessions files**
+- Currently the *.sessions files are entirely processed by the kitty program.
+  However it will be useful to have the ability for embedding instructions to
+  the launcher itself in the *.sessions file!
+- An example scenario is specifying the startup folder for the kitty session.
+  As of now there is no way to specify the startup folder in session file;
+  the 'cd' command is restricted to use inside a tab only, needing the start up
+  folder to be specified multiple times!
+- However "kitty" supports command line switch "-d" to change the working 
+  directory when launched! This means, if the working directory can be
+  passed to the laucher in a way that is transparent to "kitty", the launcher
+  could use this to modify the launch command by adding "-d <cwd>" so that
+  the session will be launched wiith correct working directory.
+- Suggested method : Embedd the commands to launcher in a specially 
+  formatted header comment block. The session file uses "#" as the comment 
+  delimiter. So commands to be interpreted by the launcher could be identified
+  by start token "#%[" and terminated by token "]%#". This will allow the
+  session file to remain valid kitty input.
+- Please implement the necessary logic to parse the .session files while lauding.
+- Initially implement the feature to pass the current working directory. That is
+  some thing of the sort #%[ currentWorkingDir = <target directory> ]%# 
+- Add the capability to (1) print out the detected working directory to console
+  for debugging (2) Invoke the kitty with the option " -d <target directory> "
+  so that the kitty gets lauched with the specified folder as the startup 
+  directory
+- Make sure the parser is flexible enough so hat more functionality can be added.
+
+---
 ## Contact & Repository
 
 - **GitHub**: https://github.com/pilakkat1964/z-kitty-launcher
@@ -573,4 +635,4 @@ curl -I http://pilakkat.mywire.org/z-kitty-launcher/
 
 **Status Summary**: ✅ Production-ready. GitHub Pages deployed and live. Multi-architecture CI/CD operational. Cargo-audit security scanning enabled. Crates.io publishing configured. Cross-project navigation working. SSH+Git fully operational. Ready for contribution guidelines phase.
 
-**Last Updated**: April 16, 2026 (Priority 5: Crates.io publishing workflow added)
+**Last Updated**: May 1, 2026 (v0.5.2: session file directive parsing, `cwd` shorthand, build-deb.sh fix)
