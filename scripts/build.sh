@@ -22,6 +22,7 @@ RELEASE_BUILD=false
 RUN_TESTS=false
 STRIP_BINARY=false
 FORCE_TIP=false
+INSTALL_BINARY=false
 TARGET_VERSION=""
 TARGET_REF=""
 
@@ -34,6 +35,7 @@ Build Options:
   --release            Build release binary (optimized)
   --test               Run tests after build
   --strip              Strip binary symbols (requires --release)
+  --install            Install binary to /usr/local/bin and create z-kitty symlink (requires --release)
 
 Version Detection (default: current checked-out version):
   By default, this script builds the version matching the current git checkout.
@@ -49,6 +51,7 @@ Examples:
   ./scripts/build.sh                        # Build current debug
   ./scripts/build.sh --release --test       # Release build with tests
   ./scripts/build.sh --release --strip      # Release build, stripped
+  ./scripts/build.sh --release --install    # Release build and install system-wide
   ./scripts/build.sh --tip --release        # Build latest Cargo.toml version
   ./scripts/build.sh --git-version v0.4.0   # Build specific git tag
   ./scripts/build.sh --version 0.5.1 --release
@@ -68,6 +71,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --strip)
             STRIP_BINARY=true
+            shift
+            ;;
+        --install)
+            INSTALL_BINARY=true
             shift
             ;;
         --tip)
@@ -218,6 +225,24 @@ if [[ "$ORIGINAL_REF" != "HEAD" ]] && [[ -n "$TARGET_REF" ]]; then
     echo -e "${YELLOW}Restoring original branch: $ORIGINAL_REF${NC}"
     git checkout "$ORIGINAL_REF" > /dev/null 2>&1 || true
     git reset --hard "$ORIGINAL_COMMIT" > /dev/null 2>&1 || true
+fi
+
+# Install system-wide if requested (requires --release)
+if [ "$INSTALL_BINARY" = true ]; then
+    if [ "$RELEASE_BUILD" != true ]; then
+        echo -e "${RED}Error: --install requires --release${NC}"
+        exit 1
+    fi
+    INSTALL_DIR="/usr/local/bin"
+    echo -e "${GREEN}Installing kitty-launcher to ${INSTALL_DIR}...${NC}"
+    sudo cp "$BINARY_PATH" "${INSTALL_DIR}/kitty-launcher"
+    sudo chmod 755 "${INSTALL_DIR}/kitty-launcher"
+    # Create z-kitty symlink (remove stale link first if present)
+    echo -e "${GREEN}Creating z-kitty symlink in ${INSTALL_DIR}...${NC}"
+    sudo ln -sf "${INSTALL_DIR}/kitty-launcher" "${INSTALL_DIR}/z-kitty"
+    echo -e "${GREEN}✓ Installed:${NC}"
+    echo -e "    ${INSTALL_DIR}/kitty-launcher"
+    echo -e "    ${INSTALL_DIR}/z-kitty -> ${INSTALL_DIR}/kitty-launcher"
 fi
 
 echo ""
