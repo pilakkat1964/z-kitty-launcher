@@ -253,6 +253,54 @@ fn get_home_dir() -> Option<PathBuf> {
     env::var("HOME").ok().map(PathBuf::from)
 }
 
+/// Finds ALL session file paths matching the name across all search paths.
+/// Used to detect shadowing: warns if session exists in multiple locations.
+///
+/// # Arguments
+/// * `session_name` - The name of the session (with or without .session extension)
+///
+/// # Returns
+/// * `Vec<PathBuf>` - All matching session file paths found (can be empty)
+fn find_all_session_paths(session_name: &str) -> Vec<PathBuf> {
+    let mut search_paths: Vec<PathBuf> = vec![
+        PathBuf::from("./kitty/sessions"),
+    ];
+
+    if let Some(home) = get_home_dir() {
+        search_paths.push(home.join(".local/etc/kitty/sessions"));
+    }
+
+    search_paths.push(PathBuf::from("/opt/etc/kitty/sessions"));
+
+    if let Some(home) = get_home_dir() {
+        search_paths.push(home.join(".local/share/kitty/sessions"));
+        search_paths.push(home.join(".config/kitty/sessions"));
+    }
+
+    let session_names: Vec<String> = if session_name.ends_with(".session") || session_name.ends_with(".kitty-session") {
+        vec![session_name.to_string()]
+    } else {
+        vec![
+            session_name.to_string(),
+            format!("{}.session", session_name),
+            format!("{}.kitty-session", session_name),
+        ]
+    };
+
+    let mut found_paths = Vec::new();
+
+    for search_path in search_paths.iter() {
+        for session_variant in session_names.iter() {
+            let config_file = search_path.join(session_variant);
+            if config_file.is_file() {
+                found_paths.push(config_file);
+            }
+        }
+    }
+
+    found_paths
+}
+
 /// Finds the configuration file for a given session name.
 ///
 /// This function searches for the session configuration file in the standard
@@ -366,18 +414,18 @@ fn find_config_file(session_name: &str) -> Result<PathBuf, String> {
 /// This function:
 /// 1. Validates the session name
 /// 2. Finds or creates the ~/.local/etc/kitty/sessions directory
-/// 3. Reads the template file (z-tools.session) or creates a default one
-/// 4. Injects a `cwd` directive with the specified or detected working directory
-/// 5. Creates a new session file with the provided name
+/// 3. Injects a `cwd` directive with the specified or detected working directory
+/// 4. Creates a new session file
 ///
 /// # Arguments
 /// * `name` - The name of the new session (without .session extension)
 /// * `working_dir` - Optional working directory for the cwd directive
+/// * `allow_overwrite` - If true, overwrite existing file; if false, return error if exists
 ///
 /// # Returns
 /// * `Ok(PathBuf)` - The path to the created session file
 /// * `Err(String)` - An error message if creation failed
-fn create_session_file(name: &str, working_dir: Option<&str>) -> Result<PathBuf, String> {
+fn create_session_file(name: &str, working_dir: Option<&str>, allow_overwrite: bool) -> Result<PathBuf, String> {
     // Validate the session name
     validate_session_name(name)?;
 
@@ -401,7 +449,7 @@ fn create_session_file(name: &str, working_dir: Option<&str>) -> Result<PathBuf,
     let new_file_path = session_dir.join(format!("{}.session", name));
 
     // Check if the new file already exists
-    if new_file_path.exists() {
+    if new_file_path.exists() && !allow_overwrite {
         return Err(format!(
             "Session file already exists: {}",
             new_file_path.display()
@@ -634,15 +682,11 @@ fn expand_tilde(value: &str) -> String {
 /// 4. Includes optional working directory for finding local sessions
 /// 5. Saves the .desktop file in the launchers directory
 ///
-/// The .desktop file can be used by desktop environments to add the launcher
-/// to application menus and allow quick access to the session. If a working
-/// directory is specified, the launcher will start in that directory, allowing
-/// it to find local sessions in ./kitty/sessions/
-///
 /// # Arguments
 /// * `name` - The name for the launcher (e.g., "dev", "work-session")
 /// * `session_name` - The session configuration to launch
 /// * `working_dir` - Optional working directory where to start the launcher
+/// * `allow_overwrite` - If true, overwrite existing file; if false, return error if exists
 ///
 /// # Returns
 /// * `Ok(PathBuf)` - Path to the created .desktop file
@@ -651,6 +695,7 @@ fn create_launcher_file(
     name: &str,
     session_name: &str,
     working_dir: Option<&str>,
+    allow_overwrite: bool,
 ) -> Result<PathBuf, String> {
     // Validate both launcher name and session name
     validate_session_name(name)?;
@@ -675,7 +720,7 @@ fn create_launcher_file(
     let desktop_file_path = launchers_dir.join(format!("kitty-launcher-{}.desktop", name));
 
     // Check if the .desktop file already exists
-    if desktop_file_path.exists() {
+    if desktop_file_path.exists() && !allow_overwrite {
         return Err(format!(
             "Launcher file already exists: {}",
             desktop_file_path.display()
@@ -1106,7 +1151,44 @@ fn main() {
             }
         }
 
-        match create_session_file(session_name, working_dir.as_deref()) {
+        // Check for shadowing: session with same name in other search paths
+        let existing_sessions = find_all_session_paths(session_name);
+        if !existing_sessions.is_empty() {
+            eprintln!("Warning: Session '{}' also found in:", session_name);
+            for p in &existing_sessions {
+                eprintln!("  - {}", p.display());
+            }
+            eprintln!("This new session will shadow those files.");
+            eprintln!();
+        }
+
+        // Check if session file exists in default location and prompt for overwrite
+        let default_path = match get_home_dir() {
+            Some(home) => home.join(".local/etc/kitty/sessions").join(format!("{}.session", session_name)),
+            None => {
+                eprintln!("Error: Could not determine home directory");
+                exit(2);
+            }
+        };
+        let allow_overwrite = if default_path.exists() {
+            eprint!("Session file exists at {}. Overwrite? [y/N] ", default_path.display());
+            let mut input = String::new();
+            if std::io::stdin().read_line(&mut input).is_ok() {
+                let answer = input.trim().to_lowercase();
+                answer == "y" || answer == "yes"
+            } else {
+                false
+            }
+        } else {
+            true
+        };
+
+        if !allow_overwrite {
+            eprintln!("Aborted. Session file not overwritten.");
+            exit(2);
+        }
+
+        match create_session_file(session_name, working_dir.as_deref(), true) {
             Ok(path) => {
                 println!("Session file created successfully!");
                 println!("Path: {}", path.display());
@@ -1194,7 +1276,7 @@ fn main() {
                     if std::io::stdin().read_line(&mut input).is_ok() {
                         let answer = input.trim().to_lowercase();
                         if answer == "y" || answer == "yes" {
-                            match create_session_file(launcher_name, working_dir.as_deref()) {
+                            match create_session_file(launcher_name, working_dir.as_deref(), true) {
                                 Ok(path) => {
                                     println!("Session file created: {}", path.display());
                                     session_created = true;
@@ -1237,7 +1319,38 @@ fn main() {
             // Session not found - user will be prompted later if we also need to create it
         }
 
-        match create_launcher_file(launcher_name, &session_name, desktop_working_dir) {
+        // Add overwrite prompt for .desktop file
+        let desktop_path = match get_home_dir() {
+            Some(home) => home
+                .join(".local/etc/kitty/launchers")
+                .join(format!("kitty-launcher-{}.desktop", launcher_name)),
+            None => {
+                eprintln!("Error: Could not determine home directory");
+                exit(2);
+            }
+        };
+
+        let _desktop_working_dir = if session_created { None } else { working_dir.as_deref() };
+
+        let allow_overwrite_desktop = if desktop_path.exists() {
+            eprint!("Launcher file exists at {}. Overwrite? [y/N] ", desktop_path.display());
+            let mut input = String::new();
+            if std::io::stdin().read_line(&mut input).is_ok() {
+                let answer = input.trim().to_lowercase();
+                answer == "y" || answer == "yes"
+            } else {
+                false
+            }
+        } else {
+            true
+        };
+
+        if !allow_overwrite_desktop {
+            eprintln!("Aborted. Launcher file not overwritten.");
+            exit(2);
+        }
+
+        match create_launcher_file(launcher_name, &session_name, desktop_working_dir, true) {
             Ok(path) => {
                 println!("Launcher file created successfully!");
                 println!("Path: {}", path.display());
