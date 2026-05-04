@@ -1174,10 +1174,12 @@ fn main() {
 
         // If session was NOT explicitly provided, check if a session file with
         // the launcher name exists in standard search paths. If not, prompt user.
+        let mut session_created = false;
         if !session_explicitly_provided {
             match find_config_file(launcher_name) {
                 Ok(_) => {
-                    // Session file exists — proceed normally
+                    // Session file exists — we found it, so mark as "has cwd now"
+                    session_created = true;
                 }
                 Err(_) => {
                     // Session file not found — prompt user
@@ -1195,6 +1197,7 @@ fn main() {
                             match create_session_file(launcher_name, working_dir.as_deref()) {
                                 Ok(path) => {
                                     println!("Session file created: {}", path.display());
+                                    session_created = true;
                                 }
                                 Err(e) => {
                                     eprintln!("Error creating session file: {}", e);
@@ -1209,9 +1212,32 @@ fn main() {
                     }
                 }
             }
+        } else {
+            // Session explicitly provided — we found it
+            session_created = true;
         }
 
-        match create_launcher_file(launcher_name, &session_name, working_dir.as_deref()) {
+        // Only pass working_dir to .desktop if session already exists and has its own cwd
+        // If we created a new session or will inject cwd into existing session, don't duplicate
+        let desktop_working_dir = if session_created { None } else { working_dir.as_deref() };
+
+        // If working_dir was provided and session exists, inject cwd directive into session file
+        // This handles both the "session omitted" case AND the "session explicitly provided" case
+        if let Some(ref wd) = working_dir {
+            if let Ok(session_path) = find_config_file(&session_name) {
+                if let Ok(content) = fs::read_to_string(&session_path) {
+                    let new_content = inject_cwd_directive(&content, wd);
+                    if let Err(e) = fs::write(&session_path, &new_content) {
+                        eprintln!("Warning: Could not update session with cwd: {}", e);
+                    } else {
+                        println!("Updated session with working directory: {}", wd);
+                    }
+                }
+            }
+            // Session not found - user will be prompted later if we also need to create it
+        }
+
+        match create_launcher_file(launcher_name, &session_name, desktop_working_dir) {
             Ok(path) => {
                 println!("Launcher file created successfully!");
                 println!("Path: {}", path.display());
