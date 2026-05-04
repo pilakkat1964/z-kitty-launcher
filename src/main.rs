@@ -85,9 +85,9 @@ fn print_help() {
     println!(
         "    <SESSION_NAME> -- [KITTY_ARGS]              Launch session and pass args to kitty"
     );
-    println!("    -c, --create <NAME>                         Create a session template file");
+    println!("    -c, --create <NAME> [--path|-p <DIR>]       Create a session template file");
     println!("    -l, --create-launcher <NAME> [SESSION]      Create a .desktop launcher file");
-    println!("    --path <DIR>                                (with -l) Set working directory for launcher");
+    println!("                         [--path|-p <DIR>]");
     println!("    --install <LAUNCHER_NAME>                   Add launcher to application menu");
     println!(
         "    --generate-completions <SHELL>              Generate shell completions (bash|zsh)"
@@ -96,13 +96,18 @@ fn print_help() {
     println!("    -V, --version                               Show version information");
     println!();
     println!("OPTIONS:");
+    println!("    --path, -p <DIR>                            (with -c or -l) Set working directory");
     println!("    -h, --help                                  Display help");
     println!("    -V, --version                               Display version");
     println!();
     println!("QUICK START:");
-    println!("    # Create a session template");
+    println!("    # Create a session template (auto-detects current working directory)");
     println!("    kitty-launcher -c my-session");
     println!("    $EDITOR ~/.local/etc/kitty/sessions/my-session.session");
+    println!();
+    println!("    # Create a session template with explicit working directory");
+    println!("    kitty-launcher -c my-session --path /path/to/project");
+    println!("    kitty-launcher -c my-session -p ~/projects/my-app");
     println!();
     println!("    # Launch the session");
     println!("    kitty-launcher my-session");
@@ -115,6 +120,7 @@ fn print_help() {
     println!();
     println!("    # Create launcher with working directory (for local sessions)");
     println!("    kitty-launcher -l 'Project' dev --path /path/to/project");
+    println!("    kitty-launcher -l 'Project' dev -p ~/work");
     println!();
     println!("SESSION SEARCH PATHS (in order of priority):");
     println!("    1. ./kitty/sessions/");
@@ -131,16 +137,23 @@ fn print_help() {
     println!("    kitty-launcher -c <NAME> generates a session file at:");
     println!("    ~/.local/etc/kitty/sessions/<NAME>.session");
     println!();
+    println!("    If -p/--path is not specified, the current working directory is");
+    println!("    auto-detected and embedded as a #%[ cwd = <dir> ]%# directive.");
+    println!();
+    println!("    To specify an explicit directory:");
+    println!("    kitty-launcher -c my-session -p /path/to/my-project");
+    println!();
     println!("    Uses z-tools.session as template if available, otherwise creates a basic one.");
     println!("    Edit the generated file to customize your session.");
     println!();
     println!("CREATING LAUNCHER FILES:");
     println!("    kitty-launcher -l <LAUNCHER_NAME> [SESSION] generates a .desktop file.");
     println!("    If SESSION is omitted, <LAUNCHER_NAME> is used as the session name.");
+    println!("    If the session file doesn't exist, you are prompted to create it.");
     println!("    Files are created in ~/.local/etc/kitty/launchers/ by default.");
     println!();
-    println!("    Use --path to set working directory for launching local sessions:");
-    println!("    kitty-launcher -l <LAUNCHER_NAME> <SESSION> --path /path/to/project");
+    println!("    Use --path/-p to set working directory for launching local sessions:");
+    println!("    kitty-launcher -l <LAUNCHER_NAME> <SESSION> -p /path/to/project");
     println!();
     println!("    This enables ./kitty/sessions/ to be found when launching graphically.");
     println!();
@@ -353,16 +366,18 @@ fn find_config_file(session_name: &str) -> Result<PathBuf, String> {
 /// This function:
 /// 1. Validates the session name
 /// 2. Finds or creates the ~/.local/etc/kitty/sessions directory
-/// 3. Reads the template file (z-tools.session)
-/// 4. Creates a new session file with the provided name
+/// 3. Reads the template file (z-tools.session) or creates a default one
+/// 4. Injects a `cwd` directive with the specified or detected working directory
+/// 5. Creates a new session file with the provided name
 ///
 /// # Arguments
 /// * `name` - The name of the new session (without .session extension)
+/// * `working_dir` - Optional working directory for the cwd directive
 ///
 /// # Returns
 /// * `Ok(PathBuf)` - The path to the created session file
 /// * `Err(String)` - An error message if creation failed
-fn create_session_file(name: &str) -> Result<PathBuf, String> {
+fn create_session_file(name: &str, working_dir: Option<&str>) -> Result<PathBuf, String> {
     // Validate the session name
     validate_session_name(name)?;
 
@@ -393,6 +408,17 @@ fn create_session_file(name: &str) -> Result<PathBuf, String> {
         ));
     }
 
+    // Determine the working directory to embed
+    let embedded_dir = match working_dir {
+        Some(dir) => expand_tilde(dir),
+        None => {
+            // Auto-detect current working directory
+            env::current_dir()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|_| "~".to_string())
+        }
+    };
+
     // Read the template file
     let template_content = if template_path.exists() {
         fs::read_to_string(&template_path).map_err(|e| {
@@ -407,8 +433,11 @@ fn create_session_file(name: &str) -> Result<PathBuf, String> {
         create_default_template()
     };
 
+    // Inject or update the cwd directive at the top of the file
+    let final_content = inject_cwd_directive(&template_content, &embedded_dir);
+
     // Write the new session file
-    fs::write(&new_file_path, template_content).map_err(|e| {
+    fs::write(&new_file_path, final_content).map_err(|e| {
         format!(
             "Failed to create session file {}: {}",
             new_file_path.display(),
@@ -419,6 +448,65 @@ fn create_session_file(name: &str) -> Result<PathBuf, String> {
     Ok(new_file_path)
 }
 
+/// Injects or replaces the `cwd` directive in session template content.
+///
+/// If the template already contains a `#%[ cwd = ... ]%#` or
+/// `#%[ currentWorkingDir = ... ]%#` line, it is replaced.
+/// Otherwise, the directive is prepended before the first non-comment,
+/// non-empty content line (after a leading banner).
+fn inject_cwd_directive(content: &str, cwd: &str) -> String {
+    let cwd_line = format!("#%[ cwd = {} ]%#", cwd);
+
+    // If there's already a cwd or currentWorkingDir directive, replace it
+    let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
+    for line in lines.iter_mut() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("#%[") && trimmed.ends_with("]%#") {
+            let inner = &trimmed["#%[".len()..trimmed.len() - "]%#".len()];
+            let key = inner.split('=').next().map(|s| s.trim().to_lowercase());
+            if key.as_deref() == Some("cwd") || key.as_deref() == Some("currentworkingdir") {
+                // Replace this line with the new directive
+                *line = cwd_line.clone();
+                return lines.join("\n");
+            }
+        }
+    }
+
+    // No existing directive found — insert after the comment banner header
+    // Find the right insertion point: after any leading comment lines
+    // but before the first tab/launch content
+    let mut insert_at = 0;
+    for (i, line) in lines.iter().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('#') || trimmed.is_empty() {
+            // Skip comment lines and empty lines — but track position
+            insert_at = i + 1;
+        } else {
+            // First non-comment, non-empty line — insert directive before it
+            insert_at = i;
+            break;
+        }
+    }
+    // If we've reached the end (all comments), insert at the end
+    if insert_at > lines.len() {
+        insert_at = lines.len();
+        // Add blank line before directive for separation
+        if insert_at > 0 && lines[insert_at - 1].trim().len() > 0 {
+            lines.insert(insert_at, String::new());
+            insert_at += 1;
+        }
+    }
+
+    // Insert the directive with a blank line before it for readability
+    if insert_at > 0 && !lines[insert_at.saturating_sub(1)].trim().is_empty() {
+        lines.insert(insert_at, cwd_line);
+    } else {
+        lines.insert(insert_at, cwd_line);
+    }
+
+    lines.join("\n")
+}
+
 /// Creates a default template if z-tools.session doesn't exist
 fn create_default_template() -> String {
     r#"# Kitty Session Configuration
@@ -426,8 +514,7 @@ fn create_default_template() -> String {
 # For more information, see: https://sw.kovidgoyal.net/kitty/conf/
 #
 # Kitty Launcher Directives (parsed by kitty-launcher, ignored by kitty):
-# Uncomment and edit the line below to set a startup working directory:
-# #%[ currentWorkingDir = ~ ]%#
+# The cwd directive below sets kitty's startup working directory.
 
 # Define the first tab
 new_tab Main
@@ -984,21 +1071,52 @@ fn main() {
     }
 
     // Handle create command (both --create and -c)
+    // Now accepts optional --path/-p for embedded working directory
     if first_arg == "--create" || first_arg == "-c" {
-        if args.len() != 3 {
+        if args.len() < 3 {
             eprintln!(
-                "Error: {} requires exactly one argument (session name)",
+                "Error: {} requires at least one argument (session name)",
                 first_arg
             );
-            eprintln!("Usage: {} {} <SESSION_NAME>", args[0], first_arg);
+            eprintln!(
+                "Usage: {} {} <SESSION_NAME> [--path|-p <DIR>]",
+                args[0], first_arg
+            );
             exit(2);
         }
 
         let session_name = &args[2];
-        match create_session_file(session_name) {
+        let mut working_dir: Option<String> = None;
+
+        // Parse optional --path/-p argument
+        if args.len() > 3 {
+            let mut i = 3;
+            while i < args.len() {
+                if args[i] == "--path" || args[i] == "-p" {
+                    if i + 1 >= args.len() {
+                        eprintln!("Error: {} requires an argument", args[i]);
+                        exit(2);
+                    }
+                    working_dir = Some(args[i + 1].clone());
+                    i += 2;
+                } else {
+                    eprintln!("Error: Unknown argument: {}", args[i]);
+                    exit(2);
+                }
+            }
+        }
+
+        match create_session_file(session_name, working_dir.as_deref()) {
             Ok(path) => {
                 println!("Session file created successfully!");
                 println!("Path: {}", path.display());
+                if let Some(ref wd) = working_dir {
+                    println!("Working directory: {}", wd);
+                } else {
+                    if let Ok(cwd) = env::current_dir() {
+                        println!("Working directory (auto-detected): {}", cwd.display());
+                    }
+                }
                 println!("Edit this file to customize your session configuration.");
                 exit(0);
             }
@@ -1011,43 +1129,85 @@ fn main() {
 
     // Handle create-launcher command (both --create-launcher and -l)
     // Now accepts optional session name: if omitted, uses launcher name as session
-    // Also accepts optional working directory with --path flag
+    // Also accepts optional working directory with --path/-p flag
+    // If SESSION is omitted and no matching session file exists, prompts to create one
     if first_arg == "--create-launcher" || first_arg == "-l" {
-        // Parse arguments: <LAUNCHER_NAME> [SESSION_NAME] [--path WORK_DIR]
+        // Parse arguments: <LAUNCHER_NAME> [SESSION_NAME] [--path|-p WORK_DIR]
         if args.len() < 3 {
             eprintln!("Error: {} requires at least one argument", first_arg);
             eprintln!(
-                "Usage: {} {} <LAUNCHER_NAME> [SESSION_NAME] [--path WORK_DIR]",
+                "Usage: {} {} <LAUNCHER_NAME> [SESSION_NAME] [--path|-p WORK_DIR]",
                 args[0], first_arg
             );
             eprintln!();
             eprintln!("If SESSION_NAME is omitted, LAUNCHER_NAME is used as the session.");
-            eprintln!("If --path is specified, the launcher will start from that directory.");
+            eprintln!("If --path/-p is specified, the launcher will start from that directory.");
             exit(2);
         }
 
         let launcher_name = &args[2];
         let mut session_name = launcher_name.to_string();
         let mut working_dir: Option<String> = None;
+        let mut session_explicitly_provided = false;
 
         // Parse remaining arguments
         let mut i = 3;
         while i < args.len() {
-            if args[i] == "--path" {
+            if args[i] == "--path" || args[i] == "-p" {
                 // Next argument should be the path
                 if i + 1 >= args.len() {
-                    eprintln!("Error: --path requires an argument");
+                    eprintln!("Error: {} requires an argument", args[i]);
                     exit(2);
                 }
                 working_dir = Some(args[i + 1].clone());
                 i += 2;
-            } else if !args[i].starts_with("--") && i == 3 {
+            } else if !args[i].starts_with("--") && !args[i].starts_with("-") && i == 3 {
                 // First non-flag argument is session name
                 session_name = args[i].clone();
+                session_explicitly_provided = true;
                 i += 1;
             } else {
                 eprintln!("Error: Unknown argument: {}", args[i]);
                 exit(2);
+            }
+        }
+
+        // If session was NOT explicitly provided, check if a session file with
+        // the launcher name exists in standard search paths. If not, prompt user.
+        if !session_explicitly_provided {
+            match find_config_file(launcher_name) {
+                Ok(_) => {
+                    // Session file exists — proceed normally
+                }
+                Err(_) => {
+                    // Session file not found — prompt user
+                    eprintln!(
+                        "Session file '{}' not found in standard search paths.",
+                        launcher_name
+                    );
+                    eprint!("Create it now? [y/N] ");
+
+                    // Read a single line from stdin
+                    let mut input = String::new();
+                    if std::io::stdin().read_line(&mut input).is_ok() {
+                        let answer = input.trim().to_lowercase();
+                        if answer == "y" || answer == "yes" {
+                            match create_session_file(launcher_name, working_dir.as_deref()) {
+                                Ok(path) => {
+                                    println!("Session file created: {}", path.display());
+                                }
+                                Err(e) => {
+                                    eprintln!("Error creating session file: {}", e);
+                                    exit(2);
+                                }
+                            }
+                        } else {
+                            println!("Skipping session file creation. Launcher may not work without it.");
+                        }
+                    } else {
+                        eprintln!("Error reading input — skipping session creation.");
+                    }
+                }
             }
         }
 
@@ -1057,7 +1217,7 @@ fn main() {
                 println!("Path: {}", path.display());
                 println!("Launcher name: {}", launcher_name);
                 println!("Session: {}", session_name);
-                if let Some(wd) = working_dir {
+                if let Some(ref wd) = working_dir {
                     println!("Working directory: {}", wd);
                 }
                 println!();
@@ -1420,5 +1580,40 @@ MimeType=application/x-shellscript;text/x-shellscript;application/x-sh;text/x-sh
     fn test_expand_tilde_no_tilde() {
         let result = expand_tilde("relative/path");
         assert_eq!(result, "relative/path");
+    }
+
+    /// Test inject_cwd_directive adds a cwd directive to a template without one
+    #[test]
+    fn test_inject_cwd_directive_new() {
+        let template = "# Comment\nnew_tab Main\n  launch\n";
+        let result = inject_cwd_directive(template, "/my/project");
+        assert!(result.contains("#%[ cwd = /my/project ]%#"));
+        assert!(result.contains("new_tab Main"));
+    }
+
+    /// Test inject_cwd_directive replaces existing cwd directive
+    #[test]
+    fn test_inject_cwd_directive_replace_cwd() {
+        let template = "#%[ cwd = /old/path ]%#\nnew_tab Main\n  launch\n";
+        let result = inject_cwd_directive(template, "/new/path");
+        assert!(result.contains("#%[ cwd = /new/path ]%#"));
+        assert!(!result.contains("/old/path"));
+    }
+
+    /// Test inject_cwd_directive replaces existing currentWorkingDir directive
+    #[test]
+    fn test_inject_cwd_directive_replace_full_key() {
+        let template = "#%[ currentWorkingDir = /old/path ]%#\nnew_tab Main\n";
+        let result = inject_cwd_directive(template, "/new/path");
+        assert!(result.contains("#%[ cwd = /new/path ]%#"));
+        assert!(!result.contains("currentWorkingDir"));
+    }
+
+    /// Test create_default_template no longer has the directive line inline
+    #[test]
+    fn test_default_template_no_hardcoded_directive() {
+        let template = create_default_template();
+        assert!(!template.contains("currentWorkingDir = ~"));
+        assert!(!template.contains("Uncomment and edit"));
     }
 }

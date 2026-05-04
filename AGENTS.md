@@ -640,3 +640,12 @@ Some usability improvements:
 **Status Summary**: ✅ Production-ready. GitHub Pages deployed and live. Multi-architecture CI/CD operational. Cargo-audit security scanning enabled. Crates.io publishing configured. Cross-project navigation working. SSH+Git fully operational. Ready for contribution guidelines phase.
 
 **Last Updated**: May 1, 2026 (v0.5.2: session file directive parsing, `cwd` shorthand, `.kitty-session` extension, XDG data dir search path, build-deb.sh fix)
+
+## graphify
+
+This project has a graphify knowledge graph at graphify-out/.
+
+Rules:
+- Before answering architecture or codebase questions, read graphify-out/GRAPH_REPORT.md for god nodes and community structure
+- If graphify-out/wiki/index.md exists, navigate it instead of reading raw files
+- After modifying code files in this session, run `graphify update .` to keep the graph current (AST-only, no API cost)
