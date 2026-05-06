@@ -562,15 +562,25 @@ fn create_default_template() -> String {
 # For more information, see: https://sw.kovidgoyal.net/kitty/conf/
 #
 # Kitty Launcher Directives (parsed by kitty-launcher, ignored by kitty):
-# The cwd directive below sets kitty's startup working directory.
+# Uncomment and edit the line below to set a startup working directory:
+# #%[ currentWorkingDir = ~ ]%#
 
 # Define the first tab
-new_tab Main
-  launch
+# #%[ cwd = ~/workspace/TestProj ]%#
+
+new_tab Root
+  launch bash -c "cd \"$WKSPC_ROOT\" && exec bash"
+
+new_tab src
+  launch bash -c "cd \"$WKSPC_ROOT/src\" && exec bash"
+
+new_tab build
+  launch bash -c "cd \"$WKSPC_ROOT/build\" && exec bash"
 
 # Define the second tab
-new_tab Development
-  launch
+#new_tab opencode
+#  launch opencode
+
 "#
     .to_string()
 }
@@ -1760,11 +1770,13 @@ MimeType=application/x-shellscript;text/x-shellscript;application/x-sh;text/x-sh
         assert!(!result.contains("currentWorkingDir"));
     }
 
-    /// Test create_default_template no longer has the directive line inline
+    /// Test create_default_template has tabs using WKSPC_ROOT
     #[test]
     fn test_default_template_no_hardcoded_directive() {
         let template = create_default_template();
-        assert!(!template.contains("currentWorkingDir = ~"));
-        assert!(!template.contains("Uncomment and edit"));
+        // Should NOT have active (uncommented) directive
+        assert!(template.contains("new_tab"));
+        // Should have example with WKSPC_ROOT
+        assert!(template.contains("$WKSPC_ROOT"));
     }
 }
