@@ -143,7 +143,7 @@ fn print_help() {
     println!("    To specify an explicit directory:");
     println!("    kitty-launcher -c my-session -p /path/to/my-project");
     println!();
-    println!("    Uses z-tools.session as template if available, otherwise creates a basic one.");
+    println!("    Uses kitty.session-template as template if available, otherwise creates a basic one.");
     println!("    Edit the generated file to customize your session.");
     println!();
     println!("CREATING LAUNCHER FILES:");
@@ -445,7 +445,7 @@ fn create_session_file(name: &str, working_dir: Option<&str>, allow_overwrite: b
     })?;
 
     // Define template and new file paths
-    let template_path = session_dir.join("z-tools.session");
+    let template_path = session_dir.join("kitty.session-template");
     let new_file_path = session_dir.join(format!("{}.session", name));
 
     // Check if the new file already exists
@@ -555,7 +555,7 @@ fn inject_cwd_directive(content: &str, cwd: &str) -> String {
     lines.join("\n")
 }
 
-/// Creates a default template if z-tools.session doesn't exist
+/// Creates a default template if kitty.session-template doesn't exist
 fn create_default_template() -> String {
     r#"# Kitty Session Configuration
 # Edit this file to customize your terminal session
@@ -1529,7 +1529,7 @@ mod tests {
         assert!(validate_session_name("work-session").is_ok());
         assert!(validate_session_name("session_2").is_ok());
         assert!(validate_session_name("dev.backup").is_ok());
-        assert!(validate_session_name("z-tools.session").is_ok()); // with .session extension
+        assert!(validate_session_name("kitty.session-template").is_ok()); // with .session extension
         assert!(validate_session_name("default.session").is_ok()); // with .session extension
     }
 
