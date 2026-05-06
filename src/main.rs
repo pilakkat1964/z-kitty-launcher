@@ -457,15 +457,8 @@ fn create_session_file(name: &str, working_dir: Option<&str>, allow_overwrite: b
     }
 
     // Determine the working directory to embed
-    let embedded_dir = match working_dir {
-        Some(dir) => expand_tilde(dir),
-        None => {
-            // Auto-detect current working directory
-            env::current_dir()
-                .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or_else(|_| "~".to_string())
-        }
-    };
+    // Only inject if user explicitly provides --path/-p option
+    let embedded_dir = working_dir.map(|dir| expand_tilde(dir));
 
     // Read the template file
     let template_content = if template_path.exists() {
@@ -481,8 +474,12 @@ fn create_session_file(name: &str, working_dir: Option<&str>, allow_overwrite: b
         create_default_template()
     };
 
-    // Inject or update the cwd directive at the top of the file
-    let final_content = inject_cwd_directive(&template_content, &embedded_dir);
+    // Inject or update the cwd directive ONLY if user explicitly provided working_dir
+    // Don't override directive from template if using template
+    let final_content = match embedded_dir {
+        Some(ref dir) => inject_cwd_directive(&template_content, dir),
+        None => template_content,
+    };
 
     // Write the new session file
     fs::write(&new_file_path, final_content).map_err(|e| {
