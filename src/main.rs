@@ -900,10 +900,22 @@ fn launch_kitty(config: &LauncherConfig, extra_args: Option<Vec<String>>) -> Res
     command.env("KITTY_CONF_DIR", config_dir);
 
     // Apply currentWorkingDir directive if present (session file wins over inherited cwd)
-    if let Some(ref cwd) = directives.current_working_dir {
+    let effective_cwd = directives.current_working_dir.clone();
+    if let Some(ref cwd) = effective_cwd {
         println!("Working directory: {}", cwd);
         command.arg("-d");
         command.arg(cwd);
+
+        // Pass WKSPC_ROOT as environment variable to child processes (shells, etc.)
+        command.arg("-o");
+        command.arg(format!("env=WKSPC_ROOT={}", cwd));
+    } else {
+        // No directive: set WKSPC_ROOT to the directory from which launcher was invoked
+        if let Ok(invoke_cwd) = env::current_dir() {
+            let invoke_cwd_str = invoke_cwd.to_string_lossy();
+            command.arg("-o");
+            command.arg(format!("env=WKSPC_ROOT={}", invoke_cwd_str));
+        }
     }
 
     // Add the session argument
