@@ -1,3 +1,18 @@
+kitty-launcher (0.5.3-1) unstable; urgency=medium
+
+  * Add --path/-p short form for set working directory
+  * Add session creation with embedded cwd directive
+  * Auto-detect current working directory when --path/-p not specified
+  * In -l/--create-launcher, prompt to create session if not found
+  * Inject cwd into session file, not desktop file
+  * Add prompt for overwrite, warn about shadowing
+  * Pass WKSPC_ROOT env var to kitty child processes
+  * Update default template to use WKSPC_ROOT tabs
+  * Rename template from z-tools.session to kitty.session-template
+  * Copy template as-is, only inject directive if -p explicitly provided
+
+ -- OpenCode Contributors <contributors@opencode.ai>  Wed, 06 May 2026 12:00:00 +0000
+
 kitty-launcher (0.5.2-1) unstable; urgency=medium
 
   * Add session file directive parsing (#%[ key = value ]%# syntax)
