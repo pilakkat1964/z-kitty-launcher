@@ -3,33 +3,45 @@
 ## Project Overview
 
 **Project**: Kitty Launcher - Terminal Session Manager for Kitty Emulator  
-**Status**: ✅ **PRODUCTION READY** (v0.4.0)  
-**Location**: `/home/sysadmin/workspace/Opencode-workspaces/z-tools/kitty-launcher/`  
+**Status**: ✅ **PRODUCTION READY** (v0.5.3)  
+**Location**: `/home/sysadmin/workspace/z-tools/z-kitty-launcher/`  
 **Language**: Rust (100% pure, zero external dependencies)  
 **License**: MIT  
-**Repository**: https://github.com/pilakkat1964/kitty-launcher  
+**Repository**: https://github.com/pilakkat1964/z-kitty-launcher  
 
 ---
 
 ## Current Status
 
-### Version: 0.5.2 (Latest)
-- **Release**: Session File Directive Parsing
+### Version: 0.5.3 (Latest)
+- **Release**: Working Directory Propagation, Template Improvements
 - **Build**: ✅ Clean (0 warnings, 0 errors)
-- **Tests**: ✅ 19/19 passing
+- **Tests**: ✅ 23/23 passing
 - **Git**: ✅ SSH+Git fully operational with pilakkat1964 account
-- **Debian**: ✅ Package builds successfully
+- **Debian**: ✅ Package builds successfully (0.5.3-1)
 
 ### Quick Facts
-- **Source Code**: ~1,150 lines (src/main.rs)
+- **Source Code**: ~1,780 lines (src/main.rs)
 - **Documentation**: 1,600+ lines (README, man page, info page, guides)
 - **Binary Size**: ~509 KB (release, stripped)
 - **Build Time**: ~1.5 seconds
-- **Test Suite**: 19 unit tests (validation, completions, desktop integration, directive parsing)
+- **Test Suite**: 23 unit tests (validation, completions, desktop integration, directive parsing)
 
 ---
 
 ## Version History
+
+### v0.5.3 - Working Directory Propagation, Template Improvements
+- Add --path/-p short form for --path option (both -c and -l commands)
+- Accept --path/-p in -c/--create to embed cwd directive in session template
+- Auto-detect current working directory when --path/-p not specified
+- In -l/--create-launcher, when SESSION omitted, check existence and prompt to create
+- Inject cwd directive into session file instead of desktop file Path=
+- Pass WKSPC_ROOT environment variable to kitty child processes via -o flag
+- Prompt for overwrite, warn about shadowing (session with same name in other search paths)
+- Copy template file as-is, only inject directive if -p explicitly provided
+- Rename template from z-tools.session to kitty.session-template
+- Update default session template to use WKSPC_ROOT tabs (Root, src, build)
 
 ### v0.5.2 - Session File Directive Parsing
 - Embedded launcher directives in `.session` files via `#%[ key = value ]%#` syntax
@@ -37,11 +49,8 @@
 - Tilde (`~`) expansion for directive values
 - Directive output printed to stdout on launch for transparency
 - Graceful handling of unknown/malformed directives (warnings, no failure)
-- Updated default session template with directive usage example
-- Updated help output with SESSION DIRECTIVES section
-- Fixed `build-deb.sh`: removed `local` keyword used outside functions
-- Added `~/.local/share/kitty/sessions` as search path #4
-- Added `.kitty-session` as accepted extension alongside `.session` (parity with kitty)
+- Added `~/.local/share/kitty/sessions` as search path
+- Added `.kitty-session` as accepted extension alongside `.session`
 - 9 new unit tests; 19 total
 
 ### v0.5.1 - Build System Improvements
@@ -639,7 +648,7 @@ Some usability improvements:
 
 **Status Summary**: ✅ Production-ready. GitHub Pages deployed and live. Multi-architecture CI/CD operational. Cargo-audit security scanning enabled. Crates.io publishing configured. Cross-project navigation working. SSH+Git fully operational. Ready for contribution guidelines phase.
 
-**Last Updated**: May 1, 2026 (v0.5.2: session file directive parsing, `cwd` shorthand, `.kitty-session` extension, XDG data dir search path, build-deb.sh fix)
+**Last Updated**: May 6, 2026 (v0.5.3: --path/-p, cwd auto-detect, prompt session create, WKSPC_ROOT env, template rename, copy-as-is)
 
 ## graphify
 
