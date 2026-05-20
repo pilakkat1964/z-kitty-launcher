@@ -86,7 +86,7 @@ fn print_help() {
         "    <SESSION_NAME> -- [KITTY_ARGS]              Launch session and pass args to kitty"
     );
     println!("    -c, --create <NAME> [--path|-p <DIR>]       Create a session template file");
-    println!("    -l, --create-launcher <NAME> [SESSION]      Create a .desktop launcher file");
+    println!("    -l, --create-launcher [LAUNCHER_NAME] [SESSION]      Create a .desktop launcher file");
     println!("                         [--path|-p <DIR>]");
     println!("    --install <LAUNCHER_NAME>                   Add launcher to application menu");
     println!(
@@ -147,8 +147,9 @@ fn print_help() {
     println!("    Edit the generated file to customize your session.");
     println!();
     println!("CREATING LAUNCHER FILES:");
-    println!("    kitty-launcher -l <LAUNCHER_NAME> [SESSION] generates a .desktop file.");
-    println!("    If SESSION is omitted, <LAUNCHER_NAME> is used as the session name.");
+    println!("    kitty-launcher -l [LAUNCHER_NAME] [SESSION] generates a .desktop file.");
+    println!("    If LAUNCHER_NAME is omitted, the current working directory name is used as the launcher name.");
+    println!("    If SESSION is omitted, the launcher name is used as the session name.");
     println!("    If the session file doesn't exist, you are prompted to create it.");
     println!("    Files are created in ~/.local/etc/kitty/launchers/ by default.");
     println!();
@@ -984,6 +985,12 @@ _kitty_launcher_complete() {
     done
     # Deduplicate and trim blank lines
     sessions=$(echo "$sessions" | sort -u | grep -v '^$')
+    # Also suggest current directory basename as a possible launcher name
+    local cwdname
+    cwdname=$(basename "$PWD")
+    if [[ -n "$cwdname" ]]; then
+        sessions=$(printf '%s\n%s' "$sessions" "$cwdname" | sort -u)
+    fi
 
     # Handle options and commands
     if [[ $COMP_CWORD -eq 1 ]]; then
@@ -994,7 +1001,7 @@ _kitty_launcher_complete() {
         # After --create or -c: no completion (user enters new session name)
         COMPREPLY=()
     elif [[ "$prev" == "--create-launcher" ]] || [[ "$prev" == "-l" ]]; then
-        # After --create-launcher: complete with available sessions
+        # After --create-launcher/-l: suggest both available sessions and a launcher name
         COMPREPLY=( $(compgen -W "${sessions}" -- "$cur") )
     elif [[ "$prev" == "--install" ]]; then
         # After --install: no completion (user enters launcher name to install)
@@ -1233,42 +1240,59 @@ fn main() {
     // Also accepts optional working directory with --path/-p flag
     // If SESSION is omitted and no matching session file exists, prompts to create one
     if first_arg == "--create-launcher" || first_arg == "-l" {
-        // Parse arguments: <LAUNCHER_NAME> [SESSION_NAME] [--path|-p WORK_DIR]
-        if args.len() < 3 {
-            eprintln!("Error: {} requires at least one argument", first_arg);
-            eprintln!(
-                "Usage: {} {} <LAUNCHER_NAME> [SESSION_NAME] [--path|-p WORK_DIR]",
-                args[0], first_arg
-            );
-            eprintln!();
-            eprintln!("If SESSION_NAME is omitted, LAUNCHER_NAME is used as the session.");
-            eprintln!("If --path/-p is specified, the launcher will start from that directory.");
-            exit(2);
+        // Parse arguments: [LAUNCHER_NAME] [SESSION_NAME] [--path|-p WORK_DIR]
+        // LAUNCHER_NAME is optional — if omitted derive from current working dir basename
+
+        // Determine launcher name: it may be provided at args[2] or omitted
+        let mut idx = 2;
+        let launcher_name: String;
+        if args.len() <= 2 || args[2].starts_with('-') {
+            // No launcher name provided — derive from cwd
+            match env::current_dir() {
+                Ok(p) => {
+                    launcher_name = p
+                        .file_name()
+                        .map(|s| s.to_string_lossy().to_string())
+                        .unwrap_or_else(|| {
+                            eprintln!("Error: Could not determine current working directory to derive launcher name");
+                            exit(2);
+                        });
+                }
+                Err(_) => {
+                    eprintln!("Error: Could not determine current working directory to derive launcher name");
+                    exit(2);
+                }
+            }
+        } else {
+            launcher_name = args[2].clone();
+            idx = 3;
         }
 
-        let launcher_name = &args[2];
-        let mut session_name = launcher_name.to_string();
+        // Default session name is the launcher name
+        let mut session_name = launcher_name.clone();
         let mut working_dir: Option<String> = None;
         let mut session_explicitly_provided = false;
 
-        // Parse remaining arguments
-        let mut i = 3;
-        while i < args.len() {
-            if args[i] == "--path" || args[i] == "-p" {
-                // Next argument should be the path
-                if i + 1 >= args.len() {
-                    eprintln!("Error: {} requires an argument", args[i]);
+        // If next positional argument (at idx) is present and not a flag, treat as session name
+        if idx < args.len() {
+            if !args[idx].starts_with('-') {
+                session_name = args[idx].clone();
+                session_explicitly_provided = true;
+                idx += 1;
+            }
+        }
+
+        // Parse remaining flags (only --path/-p supported)
+        while idx < args.len() {
+            if args[idx] == "--path" || args[idx] == "-p" {
+                if idx + 1 >= args.len() {
+                    eprintln!("Error: {} requires an argument", args[idx]);
                     exit(2);
                 }
-                working_dir = Some(args[i + 1].clone());
-                i += 2;
-            } else if !args[i].starts_with("--") && !args[i].starts_with("-") && i == 3 {
-                // First non-flag argument is session name
-                session_name = args[i].clone();
-                session_explicitly_provided = true;
-                i += 1;
+                working_dir = Some(args[idx + 1].clone());
+                idx += 2;
             } else {
-                eprintln!("Error: Unknown argument: {}", args[i]);
+                eprintln!("Error: Unknown argument: {}", args[idx]);
                 exit(2);
             }
         }
@@ -1277,25 +1301,21 @@ fn main() {
         // the launcher name exists in standard search paths. If not, prompt user.
         let mut session_created = false;
         if !session_explicitly_provided {
-            match find_config_file(launcher_name) {
+            match find_config_file(&launcher_name) {
                 Ok(_) => {
-                    // Session file exists — we found it, so mark as "has cwd now"
                     session_created = true;
                 }
                 Err(_) => {
-                    // Session file not found — prompt user
                     eprintln!(
                         "Session file '{}' not found in standard search paths.",
                         launcher_name
                     );
                     eprint!("Create it now? [y/N] ");
-
-                    // Read a single line from stdin
                     let mut input = String::new();
                     if std::io::stdin().read_line(&mut input).is_ok() {
                         let answer = input.trim().to_lowercase();
                         if answer == "y" || answer == "yes" {
-                            match create_session_file(launcher_name, working_dir.as_deref(), true) {
+                            match create_session_file(&launcher_name, working_dir.as_deref(), true) {
                                 Ok(path) => {
                                     println!("Session file created: {}", path.display());
                                     session_created = true;
@@ -1314,16 +1334,13 @@ fn main() {
                 }
             }
         } else {
-            // Session explicitly provided — we found it
             session_created = true;
         }
 
         // Only pass working_dir to .desktop if session already exists and has its own cwd
-        // If we created a new session or will inject cwd into existing session, don't duplicate
         let desktop_working_dir = if session_created { None } else { working_dir.as_deref() };
 
         // If working_dir was provided and session exists, inject cwd directive into session file
-        // This handles both the "session omitted" case AND the "session explicitly provided" case
         if let Some(ref wd) = working_dir {
             if let Ok(session_path) = find_config_file(&session_name) {
                 if let Ok(content) = fs::read_to_string(&session_path) {
@@ -1335,7 +1352,6 @@ fn main() {
                     }
                 }
             }
-            // Session not found - user will be prompted later if we also need to create it
         }
 
         // Add overwrite prompt for .desktop file
@@ -1369,7 +1385,7 @@ fn main() {
             exit(2);
         }
 
-        match create_launcher_file(launcher_name, &session_name, desktop_working_dir, true) {
+        match create_launcher_file(&launcher_name, &session_name, desktop_working_dir, true) {
             Ok(path) => {
                 println!("Launcher file created successfully!");
                 println!("Path: {}", path.display());
