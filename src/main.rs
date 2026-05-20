@@ -1047,6 +1047,13 @@ _kitty_launcher() {
     done
     # Deduplicate
     sessions=(${(u)sessions})
+    # Also suggest current directory basename as a possible launcher name
+    local cwdname
+    cwdname=${PWD##*/}
+    if [[ -n "$cwdname" ]]; then
+        sessions+=($cwdname)
+        sessions=(${(u)sessions})
+    fi
 
     commands=(
         '--help:Show help message'
