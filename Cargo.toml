@@ -1,6 +1,6 @@
 [package]
 name = "kitty-launcher"
-version = "0.5.3"
+version = "0.5.4"
 edition = "2021"
 authors = ["OpenCode Contributors"]
 description = "A robust Rust wrapper for kitty terminal emulator with flexible session presets"
@@ -13,3 +13,4 @@ keywords = ["terminal", "kitty", "session-manager", "launcher", "tui"]
 categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
+libc = "0.2"
