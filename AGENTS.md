@@ -3,7 +3,7 @@
 ## Project Overview
 
 **Project**: Kitty Launcher - Terminal Session Manager for Kitty Emulator  
-**Status**: ✅ **PRODUCTION READY** (v0.5.3)  
+**Status**: ✅ **PRODUCTION READY** (v0.5.4)  
 **Location**: `/home/sysadmin/workspace/z-tools/z-kitty-launcher/`  
 **Language**: Rust (100% pure, zero external dependencies)  
 **License**: MIT  
@@ -13,12 +13,12 @@
 
 ## Current Status
 
-### Version: 0.5.3 (Latest)
+### Version: 0.5.4 (Latest)
 - **Release**: Working Directory Propagation, Template Improvements
 - **Build**: ✅ Clean (0 warnings, 0 errors)
 - **Tests**: ✅ 23/23 passing
 - **Git**: ✅ SSH+Git fully operational with pilakkat1964 account
-- **Debian**: ✅ Package builds successfully (0.5.3-1)
+-- **Debian**: ✅ Package builds successfully (0.5.4-1)
 
 ### Quick Facts
 - **Source Code**: ~1,780 lines (src/main.rs)
@@ -648,7 +648,7 @@ Some usability improvements:
 
 **Status Summary**: ✅ Production-ready. GitHub Pages deployed and live. Multi-architecture CI/CD operational. Cargo-audit security scanning enabled. Crates.io publishing configured. Cross-project navigation working. SSH+Git fully operational. Ready for contribution guidelines phase.
 
-**Last Updated**: May 6, 2026 (v0.5.3: --path/-p, cwd auto-detect, prompt session create, WKSPC_ROOT env, template rename, copy-as-is)
+**Last Updated**: May 27, 2026 (v0.5.4: revision bump, docs & packaging updates)
 
 ## graphify
 
