@@ -1,3 +1,9 @@
+kitty-launcher (0.5.6-1) unstable; urgency=medium
+
+  * Release 0.5.6
+
+ -- OpenCode CI <ci@github>  Thu, 28 May 2026 04:47:10 +0000
+
 kitty-launcher (0.5.5-1) unstable; urgency=medium
 
   * Release: bump to 0.5.5
