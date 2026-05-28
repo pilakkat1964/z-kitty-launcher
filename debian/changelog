@@ -1,6 +1,6 @@
-kitty-launcher (0.5.4-1) unstable; urgency=medium
+kitty-launcher (0.5.5-1) unstable; urgency=medium
 
-  * Patch release: bump revision to 0.5.4
+  * Release: bump to 0.5.5
   * Include documentation and packaging version updates
 
   * Add --path/-p short form for set working directory
