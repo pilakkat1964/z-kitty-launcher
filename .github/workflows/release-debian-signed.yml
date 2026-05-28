@@ -1,0 +1,107 @@
+name: Build & Publish Signed Debian (on tag)
+on:
+  push:
+    tags:
+      - 'v*'
+permissions:
+  contents: write
+  packages: write
+jobs:
+  build-and-publish:
+    name: Build signed Debian and publish release assets
+    runs-on: ubuntu-latest
+    env:
+      CI_TAG: ${{ github.ref_name }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - name: Install Debian packaging toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            devscripts debhelper fakeroot dpkg-dev lintian jq curl build-essential
+      - name: Import GPG private key
+        run: |
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf || true
+          gpgconf --kill gpg-agent || true
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+      - name: Determine package version (from Cargo.toml)
+        id: version
+        run: |
+          VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+      - name: Update debian/changelog for CI build
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          CI_ENTRY="kitty-launcher (${VERSION}-1) unstable; urgency=medium\n\n  * CI: release ${VERSION}\n\n -- CI <ci@github> $(date -R)\n\n"
+          echo -e "$CI_ENTRY$(cat debian/changelog)" > debian/changelog
+      - name: Build signed Debian package
+        run: |
+          export GPG_TTY=$(tty) || true
+          ./scripts/build-deb.sh --clean --signed
+        env:
+          DEBSIGN_KEYID: ${{ secrets.DEBSIGN_KEYID || '' }}
+      - name: Create GitHub Release (if not exists)
+        id: create_release
+        uses: actions/create-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: ${{ github.ref_name }}
+          body: "Automated signed Debian package for ${{ github.ref_name }}"
+          draft: false
+          prerelease: false
+      - name: Upload Debian .deb (amd64)
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./kitty-launcher_${{ steps.version.outputs.version }}-1_amd64.deb
+          asset_name: kitty-launcher_${{ steps.version.outputs.version }}-1_amd64.deb
+          asset_content_type: application/vnd.debian.binary-package
+        continue-on-error: true
+      - name: Upload Debian .deb (arm64)
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./kitty-launcher_${{ steps.version.outputs.version }}-1_arm64.deb
+          asset_name: kitty-launcher_${{ steps.version.outputs.version }}-1_arm64.deb
+          asset_content_type: application/vnd.debian.binary-package
+        continue-on-error: true
+      - name: Upload .changes (signed)
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./kitty-launcher_${{ steps.version.outputs.version }}-1_amd64.changes
+          asset_name: kitty-launcher_${{ steps.version.outputs.version }}-1_amd64.changes
+          asset_content_type: text/plain
+        continue-on-error: true
+      - name: Upload detached .deb signature (.asc)
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./kitty-launcher_${{ steps.version.outputs.version }}-1_amd64.deb.asc
+          asset_name: kitty-launcher_${{ steps.version.outputs.version }}-1_amd64.deb.asc
+          asset_content_type: application/pgp-signature
+        continue-on-error: true
+      - name: Upload tar.gz / linux binary artifacts
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./kitty-launcher-v${{ steps.version.outputs.version }}.tar.gz
+          asset_name: kitty-launcher-v${{ steps.version.outputs.version }}.tar.gz
+          asset_content_type: application/gzip
+        continue-on-error: true
+      - name: Optional: Lint produced package (non-fatal)
+        run: |
+          if [ -f "kitty-launcher_${{ steps.version.outputs.version }}-1_amd64.deb" ]; then
+            lintian --display-info --display-experimental --quiet "kitty-launcher_${{ steps.version.outputs.version }}-1_amd64.deb" || true
+          fi
+
