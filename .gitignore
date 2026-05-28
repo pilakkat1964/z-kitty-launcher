@@ -9,3 +9,6 @@
 *.changes
 *.buildinfo
 *.tar.gz
+
+# Allow devcontainer configuration to be committed
+!.devcontainer/

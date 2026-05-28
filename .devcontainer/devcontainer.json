@@ -1,0 +1,20 @@
+{
+  "name": "kitty-launcher Devcontainer",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "."
+  },
+  "forwardPorts": [],
+  "postCreateCommand": "./scripts/setup_dev_env.sh --ci --yes --print-env --log-file /tmp/devcontainer_setup.log",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "ms-vscode.cpptools",
+        "ms-azuretools.vscode-docker",
+        "njpwerner.autodocstring"
+      ]
+    }
+  },
+  "remoteUser": "vscode"
+}
