@@ -658,3 +658,28 @@ Rules:
 - Before answering architecture or codebase questions, read graphify-out/GRAPH_REPORT.md for god nodes and community structure
 - If graphify-out/wiki/index.md exists, navigate it instead of reading raw files
 - After modifying code files in this session, run `graphify update .` to keep the graph current (AST-only, no API cost)
+
+## Enhancements
+
+Some of the fixes / enhancements required:
+
+### .desktop file handling.
+
+- Whenever the .desktop files are generated or updated make sure that the file contains a "Path=<Startup folder for kitty-launcher>" 
+  line so that the OS will use the specified folder as the startup folder.
+- When invoked as `kitty-launcher -l` the current working directory shall be used as the value of "Path" in the .desktop file.
+- When invoked as `kitty-launcher -l -p <start folder>` or `kitty-launcher -l --path <start folder>` <start folder> shall be
+  used as value of "Path" variable in .desktop file.
+
+### .session file handling
+
+- Whenever .session file is created or updated, make sure it contains a valid <cwd> specification directive.
+- If the .session template contains a commented out <cwd> directive, ensure that the value of <cwd> is still updated 
+  as per normal rules.
+- `kitty-launcher -l` shall use the same rule to derive the startup folder value as for the "Path" variable 
+  in the .desktop file.
+- Update the behaviour of `kitty-launcher -l` such that it updates the .desktop and .session files 
+  with correct "Path" and "<cwd>" directive respectively, after seeking explicit user confirmation / choice.
+
+
+

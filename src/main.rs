@@ -458,8 +458,15 @@ fn create_session_file(name: &str, working_dir: Option<&str>, allow_overwrite: b
     }
 
     // Determine the working directory to embed
-    // Only inject if user explicitly provides --path/-p option
-    let embedded_dir = working_dir.map(|dir| expand_tilde(dir));
+    // If the caller provided a working_dir use that (with tilde expansion).
+    // Otherwise, default to the current working directory so that newly
+    // created session files always contain a valid cwd directive.
+    let embedded_dir = match working_dir {
+        Some(dir) => Some(expand_tilde(dir)),
+        None => env::current_dir()
+            .ok()
+            .map(|p| p.to_string_lossy().to_string()),
+    };
 
     // Read the template file
     let template_content = if template_path.exists() {
@@ -475,8 +482,8 @@ fn create_session_file(name: &str, working_dir: Option<&str>, allow_overwrite: b
         create_default_template()
     };
 
-    // Inject or update the cwd directive ONLY if user explicitly provided working_dir
-    // Don't override directive from template if using template
+    // Inject or update the cwd directive (use embedded_dir which will be
+    // either the provided path or the current working directory).
     let final_content = match embedded_dir {
         Some(ref dir) => inject_cwd_directive(&template_content, dir),
         None => template_content,
@@ -736,23 +743,37 @@ fn create_launcher_file(
     }
 
     // Generate the .desktop file content
-    let desktop_content = if let Some(work_dir) = working_dir {
+    // Determine the Path value for the .desktop file. Prefer an explicit
+    // working_dir provided by the caller. If none provided, try to locate
+    // the session configuration file and use its directory as the Path so
+    // the launcher starts in the same folder where the session lives.
+    let desktop_path_value = if let Some(work_dir) = working_dir {
         // Validate that working_dir doesn't contain path traversal attacks
         if work_dir.contains("..") || work_dir.contains("//") {
             return Err("Invalid working directory: contains path traversal patterns".to_string());
         }
         // Expand tilde if present
-        let expanded_dir = if work_dir.starts_with("~") {
+        if work_dir.starts_with("~") {
             home.join(&work_dir[2..]).to_string_lossy().to_string()
         } else if work_dir.starts_with("/") {
             work_dir.to_string()
         } else {
             // Relative paths are kept as-is (can be expanded by shell)
             work_dir.to_string()
-        };
+        }
+    } else {
+        // Fall back to the directory containing the session file if available
+        match find_config_file(session_name) {
+            Ok(path) => path
+                .parent()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|| home.to_string_lossy().to_string()),
+            Err(_) => home.to_string_lossy().to_string(),
+        }
+    };
 
-        format!(
-            r#"[Desktop Entry]
+    let desktop_content = format!(
+        r#"[Desktop Entry]
 Type=Application
 Version=1.0
 Name=Kitty: {}
@@ -765,25 +786,8 @@ Categories=System;TerminalEmulator;
 StartupNotify=true
 MimeType=application/x-shellscript;text/x-shellscript;application/x-sh;text/x-sh;
 "#,
-            name, session_name, session_name, expanded_dir
-        )
-    } else {
-        format!(
-            r#"[Desktop Entry]
-Type=Application
-Version=1.0
-Name=Kitty: {}
-Comment=Launch kitty terminal with {} session
-Exec=kitty-launcher {}
-Icon=kitty
-Terminal=false
-Categories=System;TerminalEmulator;
-StartupNotify=true
-MimeType=application/x-shellscript;text/x-shellscript;application/x-sh;text/x-sh;
-"#,
-            name, session_name, session_name
-        )
-    };
+        name, session_name, session_name, desktop_path_value
+    );
 
     // Write the .desktop file
     fs::write(&desktop_file_path, desktop_content).map_err(|e| {
@@ -910,11 +914,22 @@ fn launch_kitty(config: &LauncherConfig, extra_args: Option<Vec<String>>) -> Res
     // Apply currentWorkingDir directive if present (session file wins over inherited cwd)
     let effective_cwd = directives.current_working_dir.clone();
     if let Some(ref cwd) = effective_cwd {
-        println!("Working directory: {}", cwd);
+        // Print the resolved path for diagnostics
+        println!("Resolved session file: {}", resolved_path.display());
+        println!("Working directory directive found: {}", cwd);
+
+        // Change the current working directory of the launcher process to the
+        // requested directory so that the spawned kitty process inherits it and
+        // the OS launches it from the correct startup folder when invoked via
+        // a .desktop file or a menu.
+        if let Err(e) = env::set_current_dir(&cwd) {
+            eprintln!("Warning: Could not change working directory to {}: {}", cwd, e);
+        }
+
+        // Use kitty's -d flag as well to ensure kitty itself starts in the
+        // requested directory. Also pass WKSPC_ROOT for session templates.
         command.arg("-d");
         command.arg(cwd);
-
-        // Pass WKSPC_ROOT as environment variable to child processes (shells, etc.)
         command.arg("-o");
         command.arg(format!("env=WKSPC_ROOT={}", cwd));
     } else {
@@ -940,9 +955,16 @@ fn launch_kitty(config: &LauncherConfig, extra_args: Option<Vec<String>>) -> Res
     // Attempt to execute kitty
     match command.spawn() {
         Ok(_) => {
+            // Diagnostic outputs: show the resolved session and desktop locations
             println!("Session: {}", config.session_name);
             println!("Config file: {}", resolved_path.display());
             println!("Config directory: {}", config_dir.display());
+            // Also print any .desktop file paths that would be created for this session
+            // (home launchers directory + default launcher name)
+            if let Some(home) = get_home_dir() {
+                let desktop_candidate = home.join(".local/etc/kitty/launchers").join(format!("kitty-launcher-{}.desktop", config.session_name));
+                println!("Suggested .desktop path: {}", desktop_candidate.display());
+            }
             println!("Status: Launched kitty terminal");
             Ok(())
         }
@@ -1115,7 +1137,14 @@ compdef _kitty_launcher zk
 /// 4. Exits with appropriate error codes
 fn main() {
     // Collect command line arguments
-    let args: Vec<String> = env::args().collect();
+    let mut args: Vec<String> = env::args().collect();
+
+    // Global flags
+    let mut json_output = false;
+    if args.iter().any(|a| a == "--json" || a == "-j") {
+        json_output = true;
+        args.retain(|a| a != "--json" && a != "-j");
+    }
 
     // If no arguments provided, launch kitty with no session (default behavior)
     if args.len() == 1 {
@@ -1223,16 +1252,25 @@ fn main() {
 
         match create_session_file(session_name, working_dir.as_deref(), true) {
             Ok(path) => {
-                println!("Session file created successfully!");
-                println!("Path: {}", path.display());
-                if let Some(ref wd) = working_dir {
-                    println!("Working directory: {}", wd);
+                if json_output {
+                    // Machine-friendly JSON output for scripting
+                    let wd = working_dir.as_deref().map(|s| s.to_string()).unwrap_or_else(|| {
+                        env::current_dir().map(|p| p.to_string_lossy().to_string()).unwrap_or_default()
+                    });
+                    println!("{{\"action\":\"create_session\",\"path\":\"{}\",\"working_directory\":\"{}\"}}",
+                        path.display(), wd);
                 } else {
-                    if let Ok(cwd) = env::current_dir() {
-                        println!("Working directory (auto-detected): {}", cwd.display());
+                    println!("Session file created successfully!");
+                    println!("Path: {}", path.display());
+                    if let Some(ref wd) = working_dir {
+                        println!("Working directory: {}", wd);
+                    } else {
+                        if let Ok(cwd) = env::current_dir() {
+                            println!("Working directory (auto-detected): {}", cwd.display());
+                        }
                     }
+                    println!("Edit this file to customize your session configuration.");
                 }
-                println!("Edit this file to customize your session configuration.");
                 exit(0);
             }
             Err(e) => {
@@ -1394,16 +1432,21 @@ fn main() {
 
         match create_launcher_file(&launcher_name, &session_name, desktop_working_dir, true) {
             Ok(path) => {
-                println!("Launcher file created successfully!");
-                println!("Path: {}", path.display());
-                println!("Launcher name: {}", launcher_name);
-                println!("Session: {}", session_name);
-                if let Some(ref wd) = working_dir {
-                    println!("Working directory: {}", wd);
+                if json_output {
+                    println!("{{\"action\":\"create_launcher\",\"path\":\"{}\",\"launcher\":\"{}\",\"session\":\"{}\"}}",
+                        path.display(), launcher_name, session_name);
+                } else {
+                    println!("Launcher file created successfully!");
+                    println!("Path: {}", path.display());
+                    println!("Launcher name: {}", launcher_name);
+                    println!("Session: {}", session_name);
+                    if let Some(ref wd) = working_dir {
+                        println!("Working directory: {}", wd);
+                    }
+                    println!();
+                    println!("To add this launcher to your application menu, run:");
+                    println!("  kitty-launcher --install {}", launcher_name);
                 }
-                println!();
-                println!("To add this launcher to your application menu, run:");
-                println!("  kitty-launcher --install {}", launcher_name);
                 exit(0);
             }
             Err(e) => {
@@ -1798,5 +1841,141 @@ MimeType=application/x-shellscript;text/x-shellscript;application/x-sh;text/x-sh
         assert!(template.contains("new_tab"));
         // Should have example with WKSPC_ROOT
         assert!(template.contains("$WKSPC_ROOT"));
+    }
+
+    /// Test that create_session_file injects an auto-detected cwd when --path is omitted
+    #[test]
+    fn test_create_session_injects_auto_cwd() {
+        use std::env;
+        use std::fs;
+
+        // Prepare a temporary HOME to avoid touching the real home directory
+        let tmp_home = std::env::temp_dir().join(format!("kitty_test_home_{}_auto", std::process::id()));
+        if tmp_home.exists() {
+            let _ = fs::remove_dir_all(&tmp_home);
+        }
+        fs::create_dir_all(&tmp_home).expect("create tmp home");
+
+        let orig_home = env::var("HOME").ok();
+        env::set_var("HOME", tmp_home.to_string_lossy().to_string());
+
+        // Ensure current working dir is known
+        let cwd = env::current_dir().expect("cwd").to_string_lossy().to_string();
+
+        // Create session without passing --path
+        let session_name = "auto_cwd_test_session";
+        let session_path = create_session_file(session_name, None, true).expect("create session");
+
+        let content = fs::read_to_string(&session_path).expect("read session");
+        assert!(content.contains("#%[ cwd = ") || content.contains("#%[ currentWorkingDir ")); // directive present
+        assert!(content.contains(&cwd) || content.contains(&expand_tilde("~"))); // contains cwd value
+
+        // Cleanup and restore HOME
+        let _ = fs::remove_file(&session_path);
+        let _ = fs::remove_dir_all(tmp_home.join(".local"));
+        match orig_home {
+            Some(v) => env::set_var("HOME", v),
+            None => env::remove_var("HOME"),
+        }
+    }
+
+    /// Test that create_session_file respects tilde expansion when provided a ~ path
+    #[test]
+    fn test_create_session_with_tilde_path() {
+        use std::env;
+        use std::fs;
+
+        // Prepare a temporary HOME to avoid touching the real home directory
+        let tmp_home = std::env::temp_dir().join(format!("kitty_test_home_{}_tilde", std::process::id()));
+        if tmp_home.exists() {
+            let _ = fs::remove_dir_all(&tmp_home);
+        }
+        fs::create_dir_all(&tmp_home).expect("create tmp home");
+
+        let orig_home = env::var("HOME").ok();
+        env::set_var("HOME", tmp_home.to_string_lossy().to_string());
+
+        // Provide a tilde path and ensure it's expanded in the session file
+        let session_name = "tilde_cwd_test_session";
+        let provided = "~/my/special/path";
+        let session_path = create_session_file(session_name, Some(provided), true).expect("create session");
+
+        let content = fs::read_to_string(&session_path).expect("read session");
+        // The tilde should have been expanded to the tmp_home
+        let expected = format!("{}/my/special/path", tmp_home.to_string_lossy());
+        assert!(content.contains(&expected), "expected expanded path in session file");
+
+        // Cleanup and restore HOME
+        let _ = fs::remove_file(&session_path);
+        let _ = fs::remove_dir_all(tmp_home.join(".local"));
+        match orig_home {
+            Some(v) => env::set_var("HOME", v),
+            None => env::remove_var("HOME"),
+        }
+    }
+
+    /// Test that create_launcher_file writes a Path line when a working_dir is provided
+    #[test]
+    fn test_create_launcher_writes_path_line() {
+        use std::env;
+        use std::fs;
+
+        let tmp_home = std::env::temp_dir().join(format!("kitty_test_home_{}_launcher", std::process::id()));
+        if tmp_home.exists() {
+            let _ = fs::remove_dir_all(&tmp_home);
+        }
+        fs::create_dir_all(&tmp_home).expect("create tmp home");
+
+        let orig_home = env::var("HOME").ok();
+        env::set_var("HOME", tmp_home.to_string_lossy().to_string());
+
+        let launcher = "ltst";
+        let session = "somenonexistent";
+        let provided = "/tmp/someproject";
+
+        let desktop_path = create_launcher_file(launcher, session, Some(provided), true).expect("create launcher");
+        let content = fs::read_to_string(&desktop_path).expect("read desktop");
+        assert!(content.contains(&format!("Path={}", provided)));
+
+        // Cleanup and restore HOME
+        let _ = fs::remove_file(&desktop_path);
+        let _ = fs::remove_dir_all(tmp_home.join(".local"));
+        match orig_home {
+            Some(v) => env::set_var("HOME", v),
+            None => env::remove_var("HOME"),
+        }
+    }
+
+    /// Test that create_launcher_file falls back to HOME when session not found and no working_dir provided
+    #[test]
+    fn test_create_launcher_fallbacks_to_home_path() {
+        use std::env;
+        use std::fs;
+
+        let tmp_home = std::env::temp_dir().join(format!("kitty_test_home_{}_launch2", std::process::id()));
+        if tmp_home.exists() {
+            let _ = fs::remove_dir_all(&tmp_home);
+        }
+        fs::create_dir_all(&tmp_home).expect("create tmp home");
+
+        let orig_home = env::var("HOME").ok();
+        env::set_var("HOME", tmp_home.to_string_lossy().to_string());
+
+        let launcher = "ltst2";
+        let session = "does_not_exist_session";
+
+        let desktop_path = create_launcher_file(launcher, session, None, true).expect("create launcher");
+        let content = fs::read_to_string(&desktop_path).expect("read desktop");
+        // Path should equal the tmp_home directory string
+        let expected = tmp_home.to_string_lossy().to_string();
+        assert!(content.contains(&format!("Path={}", expected)));
+
+        // Cleanup and restore HOME
+        let _ = fs::remove_file(&desktop_path);
+        let _ = fs::remove_dir_all(tmp_home.join(".local"));
+        match orig_home {
+            Some(v) => env::set_var("HOME", v),
+            None => env::remove_var("HOME"),
+        }
     }
 }

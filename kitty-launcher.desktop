@@ -8,3 +8,4 @@ Icon=kitty
 Terminal=false
 Categories=System;TerminalEmulator;Utility;
 StartupNotify=true
+Path=
