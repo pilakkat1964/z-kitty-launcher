@@ -34,6 +34,23 @@ cargo build --release
 sudo cp target/release/kitty-launcher /usr/local/bin/
 ```
 
+Development environment
+-----------------------
+
+We provide a helper to bootstrap local developer tools and a reproducible devcontainer. By default the
+Python virtual environment is created at ./.venv. To create it locally interactively:
+
+```bash
+./scripts/setup_dev_env.sh
+```
+
+For CI/non-interactive:
+
+```bash
+./scripts/setup_dev_env.sh --ci --yes --print-env
+eval "$(./scripts/setup_dev_env.sh --print-env)"
+```
+
 ### Create Your First Session
 
 ```bash
