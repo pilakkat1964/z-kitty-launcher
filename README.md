@@ -2,6 +2,9 @@
 
 A robust, lightning-fast Rust-based terminal session manager for the [kitty terminal emulator](https://sw.kovidgoyal.net/kitty/). Perfect for power users who manage multiple terminal configurations, developers working on diverse projects, and system administrators handling complex workflows.
 
+<!-- Devcontainer badge -->
+[![Dev Container](https://img.shields.io/badge/devcontainer-ready-blue.svg)](https://code.visualstudio.com/docs/devcontainers/containers)
+
 > **Now with KDE Plasma desktop integration!** Launch custom terminal environments directly from your desktop using folder view with cascading navigation.
 
 ## Table of Contents
